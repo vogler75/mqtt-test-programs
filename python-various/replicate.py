@@ -6,7 +6,7 @@ import json
 # Source MQTT broker details
 SOURCE_BROKER = 'scada'
 SOURCE_PORT = 1883
-SOURCE_TOPIC = '#'
+SOURCE_TOPIC = 'spBv1.0/#'
 
 # Destination MQTT broker details
 DEST_BROKER = 'localhost'
@@ -25,9 +25,8 @@ def on_connect_source(client, userdata, flags, rc):
 # Callback when a message is received from the source broker
 def on_message(client, userdata, msg):
     try:
-        payload = msg.payload.decode()
-        print(f"Replicating message from topic `{msg.topic}`: {payload}")
-        dest_client.publish(msg.topic, payload, qos=msg.qos, retain=msg.retain)
+        print(f"Replicating message from topic `{msg.topic}`: {len(msg.payload)}")
+        dest_client.publish(msg.topic, msg.payload, qos=msg.qos, retain=msg.retain)
     except Exception as e:
         print(f"Failed to replicate message: {e}")
 
