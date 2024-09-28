@@ -4,16 +4,19 @@ import numpy as np
 import paho.mqtt.client as mqtt
 
 # MQTT broker configuration
-broker_address = "192.168.1.20"
+broker_address = "localhost"
 broker_port = 1883
 topic = "video/Cameras/1"
 
 # Create an MQTT client
 client = mqtt.Client()
 
+
+# Define the callback functions
 def on_connect(client, userdata, flags, rc):
     print("Connected with result code " + str(rc))
     client.subscribe(topic)
+
 
 def on_message(client, userdata, msg):
     # Decode the image data
