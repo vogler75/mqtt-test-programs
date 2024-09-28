@@ -1,5 +1,1 @@
 paho-mqtt==1.6.1
-psycopg2-binary
-pymongo
-numpy
-opencv-python
