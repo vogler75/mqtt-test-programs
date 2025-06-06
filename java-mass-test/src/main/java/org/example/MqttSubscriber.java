@@ -83,7 +83,7 @@ public class MqttSubscriber {
                         try {
                             var thisMessage = Integer.parseInt(new String(message.getPayload()));
                             if (lastMessage + 1 != thisMessage) {
-                                System.out.println("Got wrong number " + lastMessage + " vs " + thisMessage);
+                                System.out.println("Got wrong number " + thisMessage + " vs " + lastMessage);
                             }
                             lastMessage = thisMessage;
                         } catch (Exception e) {
