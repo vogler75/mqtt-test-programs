@@ -46,7 +46,7 @@ def on_connect_A(client, userdata, flags, rc, properties=None):
         for topic in TOPICS_TO_SUBSCRIBE:
             print(f"Subscribing to topic on Broker A: {topic}")
             # Using QoS 1 for subscription as a sensible default
-            client.subscribe(topic, qos=1)
+            client.subscribe(topic, qos=0)
     else:
         print(f"Failed to connect to Broker A, return code {rc}\n")
         # Consider adding reconnection logic or exiting if critical
@@ -63,7 +63,7 @@ def on_message_A(client, userdata, msg):
             result = client_b_publisher.publish(
                 topic=msg.topic,
                 payload=msg.payload,
-                qos=msg.qos,
+                qos=0, # msg.qos,
                 retain=msg.retain
             )
             result.wait_for_publish(timeout=5)  # Wait for publish confirmation (optional)
