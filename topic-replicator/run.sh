@@ -10,10 +10,13 @@ export BROKER_A_USERNAME=""
 export BROKER_A_PASSWORD=""
 
 # Broker B (Destination) Configuration  
-export BROKER_B_HOST="test.monstermq.com"
+export BROKER_B_HOST="localhost"
 export BROKER_B_PORT="1883"
 export BROKER_B_USERNAME=""
 export BROKER_B_PASSWORD=""
+
+# Topics Configuration (comma-separated list)
+export TOPICS_TO_SUBSCRIBE="Awattar/#,Original/#,Raspberry/#,tasmota/#"
 
 # Activate virtual environment
 source .venv/bin/activate

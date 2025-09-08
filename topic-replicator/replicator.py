@@ -1,6 +1,7 @@
 import paho.mqtt.client as mqtt
 import time
 import os
+import threading
 
 # --- Configuration ---
 # Broker A (Source)
@@ -22,18 +23,21 @@ BROKER_B_PASSWORD = os.environ.get("BROKER_B_PASSWORD", None)
 
 # List of wildcard topics to subscribe to on Broker A
 # Example: ["sensors/+/temperature", "home/lights/#", "alerts/critical"]
-TOPICS_TO_SUBSCRIBE = [
-    #"Awattar/#",
-    #"go-eCharger/#",
-    #"Original/#",
-    #"Raspberry/#",
-    #"tasmota/#",
-    "Enterprise/#"
-]
+# Can be overridden with TOPICS_TO_SUBSCRIBE environment variable (comma-separated)
+TOPICS_TO_SUBSCRIBE = os.environ.get("TOPICS_TO_SUBSCRIBE", "#").split(",")
+if len(TOPICS_TO_SUBSCRIBE) == 1 and TOPICS_TO_SUBSCRIBE[0] == "":
+    TOPICS_TO_SUBSCRIBE = []  # Handle empty env var case
 
 # --- Global variable to hold the client for Broker B ---
 # This is needed so on_message_A can publish to client_B
 client_b_publisher = None
+
+# --- Metrics tracking ---
+message_count = 0
+start_time = time.time()
+last_report_time = time.time()
+last_message_count = 0
+metrics_lock = threading.Lock()
 
 
 # --- MQTT Callbacks for Broker A (Subscriber) ---
@@ -54,8 +58,12 @@ def on_connect_A(client, userdata, flags, rc, properties=None):
 
 def on_message_A(client, userdata, msg):
     """Callback for when a message is received from Broker A."""
-    global client_b_publisher
+    global client_b_publisher, message_count, metrics_lock
     #print(f"Broker A | Topic: {msg.topic} | QoS: {msg.qos} | Retained: {msg.retain} | Payload: {msg.payload.decode()[:60]}...")
+
+    # Increment message counter
+    with metrics_lock:
+        message_count += 1
 
     if client_b_publisher and client_b_publisher.is_connected():
         try:
@@ -121,9 +129,45 @@ def on_log_B(client, userdata, level, buf):
     pass
 
 
+# --- Metrics reporting ---
+def print_metrics():
+    """Print current replication metrics."""
+    global message_count, start_time, last_report_time, last_message_count, metrics_lock
+    
+    current_time = time.time()
+    with metrics_lock:
+        current_count = message_count
+        
+        # Calculate overall metrics
+        total_elapsed = current_time - start_time
+        overall_rate = current_count / total_elapsed if total_elapsed > 0 else 0
+        
+        # Calculate recent metrics (since last report)
+        interval_elapsed = current_time - last_report_time
+        interval_messages = current_count - last_message_count
+        interval_rate = interval_messages / interval_elapsed if interval_elapsed > 0 else 0
+        
+        # Update for next interval
+        last_report_time = current_time
+        last_message_count = current_count
+    
+    print(f"METRICS: Total: {current_count} msgs, Overall: {overall_rate:.1f} msg/s, Recent: {interval_rate:.1f} msg/s")
+
+
+def metrics_reporter():
+    """Background thread function to periodically report metrics."""
+    while True:
+        time.sleep(10)  # Report every 10 seconds
+        print_metrics()
+
+
 # --- Main Script Logic ---
 if __name__ == "__main__":
     print("Starting MQTT Bridge...")
+
+    # --- Start metrics reporting thread ---
+    metrics_thread = threading.Thread(target=metrics_reporter, daemon=True)
+    metrics_thread.start()
 
     # --- Initialize Client for Broker B (Publisher) ---
     client_b_publisher = mqtt.Client(client_id=BROKER_B_CLIENT_ID, protocol=mqtt.MQTTv311)
