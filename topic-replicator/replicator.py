@@ -2,12 +2,13 @@ import paho.mqtt.client as mqtt
 import time
 import os
 import threading
+import uuid
 
 # --- Configuration ---
 # Broker A (Source)
 BROKER_A_HOST = os.environ.get("BROKER_A_HOST", "scada")  # Change if different
 BROKER_A_PORT = int(os.environ.get("BROKER_A_PORT", 1883))
-BROKER_A_CLIENT_ID = "broker_a_subscriber_bridge"
+BROKER_A_CLIENT_ID = f"broker_a_subscriber_bridge_{uuid.uuid4().hex[:8]}"
 # Optional: Credentials for Broker A
 BROKER_A_USERNAME = os.environ.get("BROKER_A_USERNAME", "")
 BROKER_A_PASSWORD = os.environ.get("BROKER_A_PASSWORD", "")
@@ -15,7 +16,7 @@ BROKER_A_PASSWORD = os.environ.get("BROKER_A_PASSWORD", "")
 # Broker B (Destination)
 BROKER_B_HOST = os.environ.get("BROKER_B_HOST", "test.monstermq.com")  # Change if different
 BROKER_B_PORT = int(os.environ.get("BROKER_B_PORT", 1883))  # Change if different, e.g., another local broker
-BROKER_B_CLIENT_ID = "broker_b_publisher_bridge"
+BROKER_B_CLIENT_ID = f"broker_b_publisher_bridge_{uuid.uuid4().hex[:8]}"
 
 # Optional: Credentials for Broker B
 BROKER_B_USERNAME = os.environ.get("BROKER_B_USERNAME", None)
