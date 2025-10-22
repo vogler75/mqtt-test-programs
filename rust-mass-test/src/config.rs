@@ -15,6 +15,8 @@ pub struct Config {
     pub retained: bool,
     pub topic_prefix: String,
     pub subscribe_percentage: u8,
+    #[serde(default)]
+    pub publish_leaves_only: bool,
 }
 
 impl Default for Config {
@@ -31,6 +33,7 @@ impl Default for Config {
             retained: false,
             topic_prefix: "test".to_string(),
             subscribe_percentage: 100,
+            publish_leaves_only: false,
         }
     }
 }

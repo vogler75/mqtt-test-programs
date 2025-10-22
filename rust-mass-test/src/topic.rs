@@ -42,6 +42,19 @@ impl TopicGenerator {
         topics
     }
 
+    #[allow(dead_code)]
+    pub fn generate_leaves_only(&self) -> Vec<String> {
+        let mut topics = Vec::new();
+        let base_topic = format!("{}{:05}", self.prefix, self.base_topic_index);
+
+        // Only generate topics at max_depth (leaf nodes)
+        if self.max_depth > 0 {
+            self.generate_at_depth(&mut topics, &base_topic, self.max_depth, Vec::new());
+        }
+
+        topics
+    }
+
     fn generate_at_depth(
         &self,
         topics: &mut Vec<String>,
@@ -84,5 +97,21 @@ mod tests {
         assert!(topics.contains(&"test00001/01/02".to_string()));
         assert!(topics.contains(&"test00001/02/01".to_string()));
         assert!(topics.contains(&"test00001/02/02".to_string()));
+    }
+
+    #[test]
+    fn test_topic_generation_leaves_only() {
+        let gen = TopicGenerator::new("test".to_string(), 1, 2, 2);
+        let topics = gen.generate_leaves_only();
+
+        // Should only contain leaf topics (at max_depth)
+        assert!(!topics.contains(&"test00001".to_string()));
+        assert!(!topics.contains(&"test00001/01".to_string()));
+        assert!(!topics.contains(&"test00001/02".to_string()));
+        assert!(topics.contains(&"test00001/01/01".to_string()));
+        assert!(topics.contains(&"test00001/01/02".to_string()));
+        assert!(topics.contains(&"test00001/02/01".to_string()));
+        assert!(topics.contains(&"test00001/02/02".to_string()));
+        assert_eq!(topics.len(), 4); // Should have exactly 4 leaf topics (2^2)
     }
 }

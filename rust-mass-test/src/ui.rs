@@ -33,14 +33,14 @@ impl UIContext {
     }
 
     pub fn next_field(&mut self) {
-        self.field_index = (self.field_index + 1) % 11; // 11 fields total now
+        self.field_index = (self.field_index + 1) % 12; // 12 fields total now
         self.input_buffer.clear();
         self.in_edit_mode = false;
     }
 
     pub fn prev_field(&mut self) {
         if self.field_index == 0 {
-            self.field_index = 10;
+            self.field_index = 11;
         } else {
             self.field_index -= 1;
         }
@@ -100,6 +100,10 @@ impl UIContext {
                     self.config.subscribe_percentage = p.max(0).min(100);
                 }
             }
+            11 => {
+                self.config.publish_leaves_only = self.input_buffer.to_lowercase() == "true"
+                    || self.input_buffer == "1";
+            }
             _ => {}
         }
 
@@ -135,6 +139,7 @@ pub fn draw_config_screen(f: &mut Frame, ui: &UIContext) {
     let retained_str = ui.config.retained.to_string();
     let topic_prefix_str = ui.config.topic_prefix.clone();
     let subscribe_percentage_str = ui.config.subscribe_percentage.to_string();
+    let publish_leaves_only_str = ui.config.publish_leaves_only.to_string();
 
     let fields: Vec<(&str, String)> = vec![
         ("Broker Host", broker_host_str),
@@ -148,6 +153,7 @@ pub fn draw_config_screen(f: &mut Frame, ui: &UIContext) {
         ("Retained", retained_str),
         ("Topic Prefix", topic_prefix_str),
         ("Subscribe %", subscribe_percentage_str),
+        ("Publish Leaves Only", publish_leaves_only_str),
     ];
 
     let mut items = Vec::new();

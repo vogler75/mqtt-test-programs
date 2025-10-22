@@ -42,7 +42,11 @@ pub async fn run_producer(
         config.max_depth,
     );
 
-    let topics: Vec<String> = topic_gen.generate_all();
+    let topics: Vec<String> = if config.publish_leaves_only {
+        topic_gen.generate_leaves_only()
+    } else {
+        topic_gen.generate_all()
+    };
     let qos = match config.qos {
         0 => QoS::AtMostOnce,
         1 => QoS::AtLeastOnce,
