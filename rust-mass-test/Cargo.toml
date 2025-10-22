@@ -3,6 +3,14 @@ name = "mqtt-test"
 version = "0.1.0"
 edition = "2021"
 
+[[bin]]
+name = "mqtt-publish"
+path = "src/publisher_main.rs"
+
+[[bin]]
+name = "mqtt-subscribe"
+path = "src/subscriber_main.rs"
+
 [dependencies]
 rumqttc = "0.24"
 tokio = { version = "1", features = ["full"] }
@@ -16,3 +24,4 @@ fastrand = "2"
 bytes = "1"
 futures = "0.3"
 uuid = { version = "1.6", features = ["v4"] }
+rand = "0.8"

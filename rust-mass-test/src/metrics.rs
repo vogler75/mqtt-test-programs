@@ -3,38 +3,51 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Clone)]
-pub struct ProducerMetrics {
+pub struct ClientMetrics {
     pub id: usize,
     total_published: Arc<AtomicU64>,
+    total_received: Arc<AtomicU64>,
     last_vps_time: Arc<AtomicU64>,
     last_vps_count: Arc<AtomicU64>,
     cached_vps: Arc<AtomicU64>, // Store as u64 bits to avoid sync issues
 }
 
-impl ProducerMetrics {
+impl ClientMetrics {
     pub fn new(id: usize) -> Self {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_secs();
 
-        ProducerMetrics {
+        ClientMetrics {
             id,
             total_published: Arc::new(AtomicU64::new(0)),
+            total_received: Arc::new(AtomicU64::new(0)),
             last_vps_time: Arc::new(AtomicU64::new(now)),
             last_vps_count: Arc::new(AtomicU64::new(0)),
             cached_vps: Arc::new(AtomicU64::new(0)),
         }
     }
 
+    #[allow(dead_code)]
     pub fn increment_published(&self) {
         self.total_published.fetch_add(1, Ordering::Relaxed);
     }
 
-    pub fn get_total(&self) -> u64 {
+    #[allow(dead_code)]
+    pub fn increment_received(&self) {
+        self.total_received.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn get_total_published(&self) -> u64 {
         self.total_published.load(Ordering::Relaxed)
     }
 
+    pub fn get_total_received(&self) -> u64 {
+        self.total_received.load(Ordering::Relaxed)
+    }
+
+    #[allow(dead_code)]
     pub fn get_counter(&self) -> u64 {
         // Counter is just the total count (sequence number)
         self.total_published.load(Ordering::Relaxed)
@@ -76,27 +89,27 @@ impl ProducerMetrics {
 }
 
 pub struct GlobalMetrics {
-    pub producers: Vec<ProducerMetrics>,
+    pub clients: Vec<ClientMetrics>,
 }
 
 impl GlobalMetrics {
-    pub fn new(num_producers: usize) -> Self {
-        let producers = (0..num_producers)
-            .map(|i| ProducerMetrics::new(i))
+    pub fn new(num_clients: usize) -> Self {
+        let clients = (0..num_clients)
+            .map(|i| ClientMetrics::new(i))
             .collect();
 
-        GlobalMetrics { producers }
+        GlobalMetrics { clients }
     }
 
     pub fn get_total_published(&self) -> u64 {
-        self.producers.iter().map(|p| p.get_total()).sum()
+        self.clients.iter().map(|p| p.get_total_published()).sum()
+    }
+
+    pub fn get_total_received(&self) -> u64 {
+        self.clients.iter().map(|p| p.get_total_received()).sum()
     }
 
     pub fn get_total_vps(&self) -> f64 {
-        self.producers.iter().map(|p| p.calculate_vps()).sum()
-    }
-
-    pub fn get_producer(&self, id: usize) -> Option<&ProducerMetrics> {
-        self.producers.get(id)
+        self.clients.iter().map(|p| p.calculate_vps()).sum()
     }
 }

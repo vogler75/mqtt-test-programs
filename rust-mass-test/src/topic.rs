@@ -7,7 +7,7 @@
 
 pub struct TopicGenerator {
     prefix: String,
-    start_num: usize,
+    base_topic_index: usize,
     topics_per_node: usize,
     max_depth: usize,
 }
@@ -15,13 +15,13 @@ pub struct TopicGenerator {
 impl TopicGenerator {
     pub fn new(
         prefix: String,
-        start_num: usize,
+        base_topic_index: usize,
         topics_per_node: usize,
         max_depth: usize,
     ) -> Self {
         TopicGenerator {
             prefix,
-            start_num,
+            base_topic_index,
             topics_per_node,
             max_depth,
         }
@@ -29,7 +29,7 @@ impl TopicGenerator {
 
     pub fn generate_all(&self) -> Vec<String> {
         let mut topics = Vec::new();
-        let base_topic = format!("{}{:05}", self.prefix, self.start_num);
+        let base_topic = format!("{}{:05}", self.prefix, self.base_topic_index);
 
         // Add root topic
         topics.push(base_topic.clone());
@@ -64,112 +64,6 @@ impl TopicGenerator {
             let mut new_path = path.clone();
             new_path.push(i);
             self.generate_at_depth(topics, base, target_depth, new_path);
-        }
-    }
-
-    /// Returns iterator of topic indices for a given base topic and number of topics per branch
-    /// This is more efficient than generating all topics upfront
-    pub fn topics_iter(&self) -> impl Iterator<Item = String> + '_ {
-        TopicIterator::new(
-            self.prefix.clone(),
-            self.start_num,
-            self.topics_per_node,
-            self.max_depth,
-        )
-    }
-}
-
-pub struct TopicIterator {
-    prefix: String,
-    start_num: usize,
-    topics_per_node: usize,
-    max_depth: usize,
-    current_depth_config: Vec<usize>,
-    yielded_root: bool,
-    done: bool,
-}
-
-impl TopicIterator {
-    fn new(
-        prefix: String,
-        start_num: usize,
-        topics_per_node: usize,
-        max_depth: usize,
-    ) -> Self {
-        TopicIterator {
-            prefix,
-            start_num,
-            topics_per_node,
-            max_depth,
-            current_depth_config: Vec::new(),
-            yielded_root: false,
-            done: false,
-        }
-    }
-
-    fn next_combination(&mut self) -> bool {
-        if self.current_depth_config.is_empty() {
-            self.current_depth_config = vec![1; 1];
-            return true;
-        }
-
-        if self.current_depth_config.len() > self.max_depth {
-            return false;
-        }
-
-        // Try to increment the last element
-        if let Some(last) = self.current_depth_config.last_mut() {
-            if *last < self.topics_per_node {
-                *last += 1;
-                return true;
-            }
-        }
-
-        // Backtrack and carry over
-        let mut pos = self.current_depth_config.len() - 1;
-        loop {
-            self.current_depth_config[pos] = 1;
-
-            if pos == 0 {
-                if self.current_depth_config.len() < self.max_depth {
-                    self.current_depth_config.push(1);
-                    return true;
-                } else {
-                    return false;
-                }
-            }
-
-            pos -= 1;
-            if self.current_depth_config[pos] < self.topics_per_node {
-                self.current_depth_config[pos] += 1;
-                return true;
-            }
-        }
-    }
-}
-
-impl Iterator for TopicIterator {
-    type Item = String;
-
-    fn next(&mut self) -> Option<String> {
-        if self.done {
-            return None;
-        }
-
-        if !self.yielded_root {
-            self.yielded_root = true;
-            return Some(format!("{}_{:05}", self.prefix, self.start_num));
-        }
-
-        if self.next_combination() {
-            let mut topic = format!("{}_{:05}", self.prefix, self.start_num);
-            for component in &self.current_depth_config {
-                topic.push_str(&format!("/{:02}", component));
-            }
-            Some(topic)
-        } else {
-            self.done = true;
-            None
         }
     }
 }

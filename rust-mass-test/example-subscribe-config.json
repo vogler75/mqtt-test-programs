@@ -1,0 +1,13 @@
+{
+  "broker_host": "localhost",
+  "broker_port": 1883,
+  "num_producers": 1,  // This will be interpreted as num_clients for subscriber
+  "num_topics": 100,
+  "topics_per_node": 10,
+  "max_depth": 3,
+  "sleep_ms": 0,       // Not applicable for subscriber
+  "qos": 1,
+  "retained": false,   // Not applicable for subscriber
+  "topic_prefix": "test",
+  "subscribe_percentage": 50
+}

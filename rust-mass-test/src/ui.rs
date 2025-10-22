@@ -33,14 +33,14 @@ impl UIContext {
     }
 
     pub fn next_field(&mut self) {
-        self.field_index = (self.field_index + 1) % 10; // 10 fields total
+        self.field_index = (self.field_index + 1) % 11; // 11 fields total now
         self.input_buffer.clear();
         self.in_edit_mode = false;
     }
 
     pub fn prev_field(&mut self) {
         if self.field_index == 0 {
-            self.field_index = 9;
+            self.field_index = 10;
         } else {
             self.field_index -= 1;
         }
@@ -95,6 +95,11 @@ impl UIContext {
                     || self.input_buffer == "1";
             }
             9 => self.config.topic_prefix = self.input_buffer.clone(),
+            10 => {
+                if let Ok(p) = self.input_buffer.parse::<u8>() {
+                    self.config.subscribe_percentage = p.max(0).min(100);
+                }
+            }
             _ => {}
         }
 
@@ -129,11 +134,12 @@ pub fn draw_config_screen(f: &mut Frame, ui: &UIContext) {
     let qos_str = ui.config.qos.to_string();
     let retained_str = ui.config.retained.to_string();
     let topic_prefix_str = ui.config.topic_prefix.clone();
+    let subscribe_percentage_str = ui.config.subscribe_percentage.to_string();
 
     let fields: Vec<(&str, String)> = vec![
         ("Broker Host", broker_host_str),
         ("Broker Port", broker_port_str),
-        ("Producers", num_producers_str),
+        ("Clients", num_producers_str),
         ("Num Topics", num_topics_str),
         ("Topics per Node", topics_per_node_str),
         ("Max Depth", max_depth_str),
@@ -141,6 +147,7 @@ pub fn draw_config_screen(f: &mut Frame, ui: &UIContext) {
         ("QoS", qos_str),
         ("Retained", retained_str),
         ("Topic Prefix", topic_prefix_str),
+        ("Subscribe %", subscribe_percentage_str),
     ];
 
     let mut items = Vec::new();
@@ -192,55 +199,6 @@ pub fn draw_config_screen(f: &mut Frame, ui: &UIContext) {
     f.render_widget(footer, chunks[2]);
 }
 
-pub fn draw_confirmation_screen(f: &mut Frame, config: &Config) {
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .margin(2)
-        .constraints([
-            Constraint::Length(1),
-            Constraint::Min(10),
-            Constraint::Length(3),
-        ])
-        .split(f.area());
-
-    // Header
-    let header = Paragraph::new("Confirm Configuration")
-        .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD));
-    f.render_widget(header, chunks[0]);
-
-    // Config summary
-    let summary = format!(
-        "Broker: {}:{}\nProducers: {}\nTopics per Producer: {} (depth: {})\nSleep: {}ms\nQoS: {} | Retained: {}\n\nReady to start?",
-        config.broker_host,
-        config.broker_port,
-        config.num_producers,
-        config.num_topics,
-        config.max_depth,
-        config.sleep_ms,
-        config.qos,
-        config.retained,
-    );
-
-    let summary_widget = Paragraph::new(summary)
-        .block(Block::default().borders(Borders::ALL).title(" Summary "))
-        .style(Style::default().fg(Color::White));
-    f.render_widget(summary_widget, chunks[1]);
-
-    // Footer
-    let footer_text = vec![
-        Span::styled("ENTER", Style::default().add_modifier(Modifier::BOLD)),
-        Span::raw(": Start | "),
-        Span::styled("ESC", Style::default().add_modifier(Modifier::BOLD)),
-        Span::raw(": Back | "),
-        Span::styled("Q", Style::default().add_modifier(Modifier::BOLD)),
-        Span::raw(": Quit"),
-    ];
-    let footer = Paragraph::new(Line::from(footer_text))
-        .alignment(Alignment::Center)
-        .style(Style::default().fg(Color::Gray));
-    f.render_widget(footer, chunks[2]);
-}
-
 pub fn draw_metrics_screen(
     f: &mut Frame,
     metrics: &GlobalMetrics,
@@ -257,6 +215,7 @@ pub fn draw_metrics_screen(
     // Global metrics
     let total_vps = metrics.get_total_vps();
     let total_published = metrics.get_total_published();
+    let total_received = metrics.get_total_received();
     let uptime_secs = uptime.as_secs();
     let uptime_str = format!(
         "{}:{:02}:{:02}",
@@ -268,11 +227,11 @@ pub fn draw_metrics_screen(
     let global_info = format!(
         "Global Metrics\n\
          ═════════════════════════════════════════════════════════════\n\
-         Total Published: {}  |  Global v/s: {:.2}\n\
-         Uptime: {}  |  Active Producers: {}\n\
+         Total Published: {} | Total Received: {} | Global v/s: {:.2}\n\
+         Uptime: {}  |  Active Clients: {}\n\
          ═════════════════════════════════════════════════════════════\n\
          Press Q to STOP the test",
-        total_published, total_vps, uptime_str, metrics.producers.len(),
+        total_published, total_received, total_vps, uptime_str, metrics.clients.len(),
     );
 
     let global_widget = Paragraph::new(global_info)
@@ -280,30 +239,30 @@ pub fn draw_metrics_screen(
         .style(Style::default().fg(Color::Green).add_modifier(Modifier::BOLD));
     f.render_widget(global_widget, chunks[0]);
 
-    // Per-producer metrics
-    let per_producer_metrics: Vec<String> = metrics
-        .producers
+    // Per-client metrics
+    let per_client_metrics: Vec<String> = metrics
+        .clients
         .iter()
-        .map(|p| {
+        .map(|c| {
             format!(
-                "Producer {:3}: Total={:8}  v/s={:7.2}  Counter={:8}",
-                p.id + 1,
-                p.get_total(),
-                p.calculate_vps(),
-                p.get_counter()
+                "Client {:3}: Pub={:8} Rec={:8} v/s={:7.2}",
+                c.id + 1,
+                c.get_total_published(),
+                c.get_total_received(),
+                c.calculate_vps()
             )
         })
         .collect();
 
-    let producer_lines: Vec<ListItem> = per_producer_metrics
+    let client_lines: Vec<ListItem> = per_client_metrics
         .iter()
         .map(|line| ListItem::new(line.clone()))
         .collect();
 
-    let producer_list = List::new(producer_lines)
-        .block(Block::default().borders(Borders::ALL).title(" Per-Producer Metrics "))
+    let client_list = List::new(client_lines)
+        .block(Block::default().borders(Borders::ALL).title(" Per-Client Metrics "))
         .style(Style::default().fg(Color::Yellow));
-    f.render_widget(producer_list, chunks[1]);
+    f.render_widget(client_list, chunks[1]);
 }
 
 pub async fn handle_ui_input(ui: &mut UIContext) -> Option<bool> {

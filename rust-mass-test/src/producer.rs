@@ -1,22 +1,23 @@
 use crate::config::Config;
-use crate::metrics::ProducerMetrics;
+use crate::metrics::ClientMetrics;
 use crate::topic::TopicGenerator;
 use bytes::Bytes;
 use chrono::Utc;
-use rumqttc::{Client, MqttOptions, QoS};
+use rumqttc::{AsyncClient, Event, MqttOptions, QoS};
 use serde_json::json;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::time::sleep;
+use tokio::{time, sync::watch};
 use uuid::Uuid;
 
 pub async fn run_producer(
     producer_id: usize,
     config: Arc<Config>,
-    metrics: Arc<ProducerMetrics>,
+    metrics: Arc<ClientMetrics>,
+    mut shutdown_rx: watch::Receiver<bool>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Create MQTT connection options
-    let client_id = Uuid::new_v4().to_string();
+    let client_id = format!("pub-{}", Uuid::new_v4().to_string());
     let mut mqttoptions = MqttOptions::new(
         client_id.clone(),
         config.broker_host.clone(),
@@ -27,34 +28,10 @@ pub async fn run_producer(
     mqttoptions.set_inflight(1000); // Buffer for many in-flight messages
 
     // Create client and connection
-    let (mut client, mut connection) = Client::new(mqttoptions, 1000);
-
-    // Spawn connection event loop in background - THIS IS CRITICAL
-    // The connection task must run to actually process MQTT protocol
-    #[allow(unused)]
-    let connection_task = tokio::task::spawn_blocking(move || {
-        loop {
-            match connection.recv() {
-                Ok(evt) => {
-                    // Just drain the events, we don't care about them for this test
-                    match evt {
-                        Err(e) => {
-                            eprintln!("Producer {}: Connection error: {}", producer_id, e);
-                            break;
-                        }
-                        _ => {}
-                    }
-                }
-                Err(e) => {
-                    eprintln!("Producer {}: Receive error: {:?}", producer_id, e);
-                    break;
-                }
-            }
-        }
-    });
+    let (client, mut eventloop) = AsyncClient::new(mqttoptions, 10);
 
     // Give the connection a moment to establish
-    sleep(Duration::from_millis(500)).await;
+    time::sleep(Duration::from_millis(500)).await;
 
     // Generate topics for this producer
     let topic_gen = TopicGenerator::new(
@@ -78,64 +55,62 @@ pub async fn run_producer(
         config.sleep_ms
     );
 
+    // Create a timer for publishing with the configured sleep_ms
+    let mut publish_timer = time::interval(Duration::from_millis(config.sleep_ms));
+
+    // Track which topic to publish to
+    let mut topic_index = 0;
+
     // Main publishing loop
     loop {
-        for topic in &topics {
-            // Skip metrics topics (we handle those separately)
-            if topic.contains("/metrics") {
-                continue;
+        tokio::select! {
+            _ = shutdown_rx.changed() => {
+                eprintln!("Producer received shutdown signal. Disconnecting...");
+                client.disconnect().await?;
+                break;
             }
-
-            // Generate payload
-            let counter = metrics.get_counter();
-            let random_value: f64 = fastrand::f64();
-            let timestamp = Utc::now().to_rfc3339();
-
-            let payload = json!({
-                "ts": timestamp,
-                "counter": counter,
-                "value": random_value,
-            });
-
-            let payload_bytes = Bytes::from(payload.to_string());
-
-            match client.publish(topic.clone(), qos, config.retained, payload_bytes) {
-                Ok(_) => {
-                    metrics.increment_published();
-                }
-                Err(e) => {
-                    eprintln!("Producer {}: Publish error: {}", producer_id + 1, e);
+            event = eventloop.poll() => {
+                match event {
+                    Ok(Event::Incoming(rumqttc::Packet::ConnAck(_ack))) => {
+                        eprintln!("Producer {}: Connected to broker.", producer_id + 1);
+                    }
+                    Ok(Event::Incoming(_)) => {},
+                    Ok(Event::Outgoing(_)) => {},
+                    Err(e) => {
+                        eprintln!("Producer {}: Eventloop error: {:?}", producer_id + 1, e);
+                        time::sleep(Duration::from_secs(1)).await;
+                    }
                 }
             }
+            _ = publish_timer.tick() => {
+                // Generate payload
+                let counter = metrics.get_counter();
+                let random_value: f64 = fastrand::f64();
+                let timestamp = Utc::now().to_rfc3339();
 
-            // Sleep between publishes
-            sleep(Duration::from_millis(config.sleep_ms)).await;
-        }
+                let payload = json!({
+                    "ts": timestamp,
+                    "counter": counter,
+                    "value": random_value,
+                });
 
-        // Publish metrics every cycle
-        let metrics_topic = format!("{}{:05}/metrics", config.topic_prefix, producer_id + 1);
-        let metrics_counter = metrics.get_counter();
-        let metrics_total = metrics.get_total();
-        let metrics_payload = json!({
-            "ts": Utc::now().to_rfc3339(),
-            "producer_id": producer_id + 1,
-            "total_published": metrics_total,
-            "counter": metrics_counter,
-        });
+                let payload_bytes = Bytes::from(payload.to_string());
 
-        let payload_bytes = Bytes::from(metrics_payload.to_string());
+                let topic = &topics[topic_index % topics.len()];
+                match client.publish(topic.clone(), qos, config.retained, payload_bytes).await {
+                    Ok(_) => {
+                        metrics.increment_published();
+                    }
+                    Err(e) => {
+                        eprintln!("Producer {}: Publish error: {}", producer_id + 1, e);
+                    }
+                }
 
-        match client.publish(&metrics_topic, qos, config.retained, payload_bytes) {
-            Ok(_) => {
-                metrics.increment_published();
-            }
-            Err(e) => {
-                eprintln!(
-                    "Producer {}: Metrics publish error: {}",
-                    producer_id + 1,
-                    e
-                );
+                // Move to next topic for next publish
+                topic_index += 1;
             }
         }
     }
+
+    Ok(())
 }

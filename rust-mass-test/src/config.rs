@@ -14,6 +14,7 @@ pub struct Config {
     pub qos: i32,
     pub retained: bool,
     pub topic_prefix: String,
+    pub subscribe_percentage: u8,
 }
 
 impl Default for Config {
@@ -29,6 +30,7 @@ impl Default for Config {
             qos: 0,
             retained: false,
             topic_prefix: "test".to_string(),
+            subscribe_percentage: 100,
         }
     }
 }
