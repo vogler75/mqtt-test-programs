@@ -1,6 +1,7 @@
 use crate::config::Config;
 use crate::metrics::ClientMetrics;
 use crate::topic::TopicGenerator;
+use crate::ui::LogBuffer;
 use bytes::Bytes;
 use chrono::Utc;
 use rumqttc::{AsyncClient, Event, MqttOptions, QoS};
@@ -16,6 +17,7 @@ pub async fn run_producer(
     metrics: Arc<ClientMetrics>,
     mut shutdown_rx: watch::Receiver<bool>,
     mut pause_rx: watch::Receiver<bool>,
+    log_buffer: LogBuffer,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let client_id = format!("pub-{}", Uuid::new_v4().to_string());
 
@@ -23,7 +25,7 @@ pub async fn run_producer(
     loop {
         // Check for shutdown before attempting to connect
         if *shutdown_rx.borrow() {
-            eprintln!("Producer {}: Received shutdown signal. Exiting...", producer_id + 1);
+            log_buffer.log(format!("Producer {}: Received shutdown signal. Exiting...", producer_id + 1));
             return Ok(());
         }
 
@@ -40,28 +42,28 @@ pub async fn run_producer(
         // Create client and connection
         let (client, mut eventloop) = AsyncClient::new(mqttoptions, 10);
 
-        eprintln!("Producer {}: Waiting for connection to broker...", producer_id + 1);
+        log_buffer.log(format!("Producer {}: Waiting for connection to broker...", producer_id + 1));
 
         // Wait for CONNACK before proceeding
         let mut connected = false;
         loop {
             tokio::select! {
                 _ = shutdown_rx.changed() => {
-                    eprintln!("Producer {}: Received shutdown signal before connecting. Disconnecting...", producer_id + 1);
+                    log_buffer.log(format!("Producer {}: Received shutdown signal before connecting. Disconnecting...", producer_id + 1));
                     let _ = client.disconnect().await;
                     return Ok(());
                 }
                 event = eventloop.poll() => {
                     match event {
                         Ok(Event::Incoming(rumqttc::Packet::ConnAck(_ack))) => {
-                            eprintln!("Producer {}: ✅ Connected to broker", producer_id + 1);
+                            log_buffer.log(format!("Producer {}: ✅ Connected to broker", producer_id + 1));
                             connected = true;
                             break;
                         }
                         Ok(Event::Incoming(_)) => {},
                         Ok(Event::Outgoing(_)) => {},
                         Err(e) => {
-                            eprintln!("Producer {}: ❌ Connection error: {:?}", producer_id + 1, e);
+                            log_buffer.log(format!("Producer {}: ❌ Connection error: {:?}", producer_id + 1, e));
                             break;
                         }
                     }
@@ -71,7 +73,7 @@ pub async fn run_producer(
 
         // If we failed to connect, retry after a delay
         if !connected {
-            eprintln!("Producer {}: Failed to connect, retrying in 2 seconds...", producer_id + 1);
+            log_buffer.log(format!("Producer {}: Failed to connect, retrying in 2 seconds...", producer_id + 1));
             time::sleep(Duration::from_secs(2)).await;
             continue;
         }
@@ -95,12 +97,12 @@ pub async fn run_producer(
             _ => QoS::ExactlyOnce,
         };
 
-        eprintln!(
+        log_buffer.log(format!(
             "Producer {}: Starting with {} topics, sleep_ms={}",
             producer_id + 1,
             topics.len(),
             config.sleep_ms
-        );
+        ));
 
         // Create a timer for publishing with the configured sleep_ms
         let mut publish_timer = time::interval(Duration::from_millis(config.sleep_ms));
@@ -113,7 +115,7 @@ pub async fn run_producer(
         loop {
             tokio::select! {
                 _ = shutdown_rx.changed() => {
-                    eprintln!("Producer {}: Received shutdown signal. Disconnecting...", producer_id + 1);
+                    log_buffer.log(format!("Producer {}: Received shutdown signal. Disconnecting...", producer_id + 1));
                     let _ = client.disconnect().await;
                     should_shutdown = true;
                     break;
@@ -124,13 +126,13 @@ pub async fn run_producer(
                 event = eventloop.poll() => {
                     match event {
                         Ok(Event::Incoming(rumqttc::Packet::Disconnect)) => {
-                            eprintln!("Producer {}: ⚠️  Broker sent DISCONNECT, reconnecting...", producer_id + 1);
+                            log_buffer.log(format!("Producer {}: ⚠️  Broker sent DISCONNECT, reconnecting...", producer_id + 1));
                             break;
                         }
                         Ok(Event::Incoming(_)) => {},
                         Ok(Event::Outgoing(_)) => {},
                         Err(e) => {
-                            eprintln!("Producer {}: ⚠️  Connection error: {:?}, reconnecting...", producer_id + 1, e);
+                            log_buffer.log(format!("Producer {}: ⚠️  Connection error: {:?}, reconnecting...", producer_id + 1, e));
                             // Break on connection errors to trigger reconnection
                             break;
                         }
@@ -163,7 +165,7 @@ pub async fn run_producer(
                             tokio::task::yield_now().await;
                         }
                         Err(e) => {
-                            eprintln!("Producer {}: Publish error: {}", producer_id + 1, e);
+                            log_buffer.log(format!("Producer {}: Publish error: {}", producer_id + 1, e));
                         }
                     }
 
@@ -178,7 +180,7 @@ pub async fn run_producer(
             break;
         }
 
-        eprintln!("Producer {}: Reconnecting in 2 seconds...", producer_id + 1);
+        log_buffer.log(format!("Producer {}: Reconnecting in 2 seconds...", producer_id + 1));
         time::sleep(Duration::from_secs(2)).await;
     }
 

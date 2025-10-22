@@ -8,8 +8,9 @@ use uuid::Uuid;
 use crate::config::Config;
 use crate::metrics::ClientMetrics;
 use crate::topic::TopicGenerator;
+use crate::ui::LogBuffer;
 
-pub async fn run(config: Arc<Config>, metrics: Arc<ClientMetrics>, mut shutdown_rx: watch::Receiver<bool>) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+pub async fn run(config: Arc<Config>, metrics: Arc<ClientMetrics>, mut shutdown_rx: watch::Receiver<bool>, log_buffer: LogBuffer) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let client_id = format!("sub-{}", Uuid::new_v4().to_string());
 
     // Generate topic generator (once, reuse for reconnections)
@@ -53,30 +54,30 @@ pub async fn run(config: Arc<Config>, metrics: Arc<ClientMetrics>, mut shutdown_
     loop {
         // Check for shutdown before attempting to connect
         if *shutdown_rx.borrow() {
-            eprintln!("Subscriber {}: Received shutdown signal. Exiting...", metrics.id + 1);
+            log_buffer.log(format!("Subscriber {}: Received shutdown signal. Exiting...", metrics.id + 1));
             return Ok(());
         }
 
-        eprintln!("Subscriber {}: [DEBUG] Connecting to {}:{} with client ID {}", metrics.id + 1, &config.broker_host, config.broker_port, client_id);
+        log_buffer.log(format!("Subscriber {}: [DEBUG] Connecting to {}:{} with client ID {}", metrics.id + 1, &config.broker_host, config.broker_port, client_id));
         let mut mqttoptions = MqttOptions::new(client_id.clone(), &config.broker_host, config.broker_port);
         mqttoptions.set_keep_alive(Duration::from_secs(120));
-        eprintln!("Subscriber {}: [DEBUG] MqttOptions configured", metrics.id + 1);
+        log_buffer.log(format!("Subscriber {}: [DEBUG] MqttOptions configured", metrics.id + 1));
 
         let (client, mut eventloop) = AsyncClient::new(mqttoptions, 10);
-        eprintln!("Subscriber {}: [DEBUG] Client created, waiting for events", metrics.id + 1);
+        log_buffer.log(format!("Subscriber {}: [DEBUG] Client created, waiting for events", metrics.id + 1));
 
         // Debug output to show what we're actually subscribing to
         if config.use_leafs && config.use_wildcard {
-            eprintln!("Subscriber {}: Using WILDCARD at parent-of-leaf level: {:?}", metrics.id + 1, topics_to_subscribe);
+            log_buffer.log(format!("Subscriber {}: Using WILDCARD at parent-of-leaf level: {:?}", metrics.id + 1, topics_to_subscribe));
         } else if config.use_leafs {
-            eprintln!("Subscriber {}: Using individual LEAF topics ({} total)", metrics.id + 1, sub_count);
+            log_buffer.log(format!("Subscriber {}: Using individual LEAF topics ({} total)", metrics.id + 1, sub_count));
         } else if config.use_wildcard {
-            eprintln!("Subscriber {}: Using WILDCARD subscription at base level: {:?}", metrics.id + 1, topics_to_subscribe);
+            log_buffer.log(format!("Subscriber {}: Using WILDCARD subscription at base level: {:?}", metrics.id + 1, topics_to_subscribe));
         } else {
-            eprintln!("Subscriber {}: Using ALL topics ({} total)", metrics.id + 1, sub_count);
+            log_buffer.log(format!("Subscriber {}: Using ALL topics ({} total)", metrics.id + 1, sub_count));
         }
 
-        eprintln!("Subscriber {}: Subscribing to {} topics...", metrics.id + 1, sub_count);
+        log_buffer.log(format!("Subscriber {}: Subscribing to {} topics...", metrics.id + 1, sub_count));
 
         let mut topic_index = 0;
         let mut subscribed_count = 0;
@@ -87,7 +88,7 @@ pub async fn run(config: Arc<Config>, metrics: Arc<ClientMetrics>, mut shutdown_
         loop {
             tokio::select! {
                 _ = shutdown_rx.changed() => {
-                    eprintln!("Subscriber {}: Received shutdown signal. Disconnecting...", metrics.id + 1);
+                    log_buffer.log(format!("Subscriber {}: Received shutdown signal. Disconnecting...", metrics.id + 1));
                     let _ = client.disconnect().await;
                     should_shutdown = true;
                     break;
@@ -95,14 +96,14 @@ pub async fn run(config: Arc<Config>, metrics: Arc<ClientMetrics>, mut shutdown_
                 event = eventloop.poll() => {
                     match event {
                         Ok(Event::Incoming(rumqttc::Packet::ConnAck(ack))) => {
-                            eprintln!("Subscriber {}: ✅ Connected to broker: {:?}", metrics.id + 1, ack);
+                            log_buffer.log(format!("Subscriber {}: ✅ Connected to broker: {:?}", metrics.id + 1, ack));
                             // After ConnAck, subscribe to the first topic
                             if topic_index < sub_count {
                                 let topic = &topics_to_subscribe[topic_index];
                                 match client.subscribe(topic, QoS::AtMostOnce).await {
                                     Ok(_) => {},
                                     Err(e) => {
-                                        eprintln!("Subscriber {}: ❌ Failed to subscribe to {}: {:?}", metrics.id + 1, topic, e);
+                                        log_buffer.log(format!("Subscriber {}: ❌ Failed to subscribe to {}: {:?}", metrics.id + 1, topic, e));
                                     }
                                 }
                                 topic_index += 1;
@@ -110,10 +111,10 @@ pub async fn run(config: Arc<Config>, metrics: Arc<ClientMetrics>, mut shutdown_
                         }
                         Ok(Event::Incoming(rumqttc::Packet::SubAck(_suback))) => {
                             subscribed_count += 1;
-                            eprintln!("Subscriber {}: ✅ Received SUBACK {}/{}", metrics.id + 1, subscribed_count, sub_count);
+                            log_buffer.log(format!("Subscriber {}: ✅ Received SUBACK {}/{}", metrics.id + 1, subscribed_count, sub_count));
 
                             if subscribed_count >= sub_count {
-                                eprintln!("Subscriber {}: ✅✅ All {} subscriptions confirmed!", metrics.id + 1, sub_count);
+                                log_buffer.log(format!("Subscriber {}: ✅✅ All {} subscriptions confirmed!", metrics.id + 1, sub_count));
                                 connection_phase = false;
                                 break;
                             }
@@ -124,7 +125,7 @@ pub async fn run(config: Arc<Config>, metrics: Arc<ClientMetrics>, mut shutdown_
                                 match client.subscribe(topic, QoS::AtMostOnce).await {
                                     Ok(_) => {},
                                     Err(e) => {
-                                        eprintln!("Subscriber {}: ❌ Failed to subscribe to {}: {:?}", metrics.id + 1, topic, e);
+                                        log_buffer.log(format!("Subscriber {}: ❌ Failed to subscribe to {}: {:?}", metrics.id + 1, topic, e));
                                     }
                                 }
                                 topic_index += 1;
@@ -137,7 +138,7 @@ pub async fn run(config: Arc<Config>, metrics: Arc<ClientMetrics>, mut shutdown_
                             // Ignore outgoing events
                         }
                         Err(e) => {
-                            eprintln!("Subscriber {}: ⚠️  Connection error during subscription: {:?}, reconnecting...", metrics.id + 1, e);
+                            log_buffer.log(format!("Subscriber {}: ⚠️  Connection error during subscription: {:?}, reconnecting...", metrics.id + 1, e));
                             break;
                         }
                     }
@@ -152,7 +153,7 @@ pub async fn run(config: Arc<Config>, metrics: Arc<ClientMetrics>, mut shutdown_
 
         // If we're still in connection phase, something went wrong, reconnect
         if connection_phase {
-            eprintln!("Subscriber {}: Failed to complete subscriptions, reconnecting in 2 seconds...", metrics.id + 1);
+            log_buffer.log(format!("Subscriber {}: Failed to complete subscriptions, reconnecting in 2 seconds...", metrics.id + 1));
             time::sleep(Duration::from_secs(2)).await;
             continue;
         }
@@ -160,11 +161,11 @@ pub async fn run(config: Arc<Config>, metrics: Arc<ClientMetrics>, mut shutdown_
         println!("Subscribed to {} of {} topics.", topics_to_subscribe.len(), total_topics_count);
 
         // Event loop to process incoming messages
-        eprintln!("Subscriber {}: Now receiving messages...", metrics.id + 1);
+        log_buffer.log(format!("Subscriber {}: Now receiving messages...", metrics.id + 1));
         loop {
             tokio::select! {
                 _ = shutdown_rx.changed() => {
-                    eprintln!("Subscriber {}: Received shutdown signal. Disconnecting...", metrics.id + 1);
+                    log_buffer.log(format!("Subscriber {}: Received shutdown signal. Disconnecting...", metrics.id + 1));
                     let _ = client.disconnect().await;
                     should_shutdown = true;
                     break;
@@ -175,7 +176,7 @@ pub async fn run(config: Arc<Config>, metrics: Arc<ClientMetrics>, mut shutdown_
                             metrics.increment_received();
                         }
                         Ok(Event::Incoming(rumqttc::Packet::Disconnect)) => {
-                            eprintln!("Subscriber {}: ⚠️  Broker sent DISCONNECT, reconnecting...", metrics.id + 1);
+                            log_buffer.log(format!("Subscriber {}: ⚠️  Broker sent DISCONNECT, reconnecting...", metrics.id + 1));
                             break;
                         }
                         Ok(Event::Incoming(_packet)) => {
@@ -185,7 +186,7 @@ pub async fn run(config: Arc<Config>, metrics: Arc<ClientMetrics>, mut shutdown_
                             // Ignore outgoing events
                         }
                         Err(e) => {
-                            eprintln!("Subscriber {}: ⚠️  Connection error: {:?}, reconnecting...", metrics.id + 1, e);
+                            log_buffer.log(format!("Subscriber {}: ⚠️  Connection error: {:?}, reconnecting...", metrics.id + 1, e));
                             break;
                         }
                     }
@@ -198,7 +199,7 @@ pub async fn run(config: Arc<Config>, metrics: Arc<ClientMetrics>, mut shutdown_
             break;
         }
 
-        eprintln!("Subscriber {}: Reconnecting in 2 seconds...", metrics.id + 1);
+        log_buffer.log(format!("Subscriber {}: Reconnecting in 2 seconds...", metrics.id + 1));
         time::sleep(Duration::from_secs(2)).await;
     }
 

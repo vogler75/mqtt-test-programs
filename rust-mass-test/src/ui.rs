@@ -6,7 +6,47 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
 use ratatui::Frame;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
+
+#[derive(Clone)]
+pub struct LogBuffer {
+    logs: Arc<Mutex<Vec<String>>>,
+    max_lines: usize,
+}
+
+impl LogBuffer {
+    pub fn new(max_lines: usize) -> Self {
+        LogBuffer {
+            logs: Arc::new(Mutex::new(Vec::new())),
+            max_lines,
+        }
+    }
+
+    pub fn log(&self, message: String) {
+        if let Ok(mut logs) = self.logs.lock() {
+            logs.push(message);
+            // Keep only the last max_lines messages
+            if logs.len() > self.max_lines {
+                logs.remove(0);
+            }
+        }
+    }
+
+    pub fn get_logs(&self) -> Vec<String> {
+        if let Ok(logs) = self.logs.lock() {
+            logs.clone()
+        } else {
+            Vec::new()
+        }
+    }
+
+    pub fn clear(&self) {
+        if let Ok(mut logs) = self.logs.lock() {
+            logs.clear();
+        }
+    }
+}
 
 pub enum UIState {
     ConfigInput,
@@ -215,13 +255,14 @@ pub fn draw_metrics_screen(
     f: &mut Frame,
     metrics: &GlobalMetrics,
     uptime: Duration,
+    log_buffer: &LogBuffer,
 ) {
     let total_area = f.area();
 
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .margin(1)
-        .constraints([Constraint::Length(8), Constraint::Min(10)])
+        .constraints([Constraint::Length(8), Constraint::Min(5), Constraint::Length(6)])
         .split(total_area);
 
     // Global metrics
@@ -278,6 +319,18 @@ pub fn draw_metrics_screen(
         .block(Block::default().borders(Borders::ALL).title(" Per-Client Metrics "))
         .style(Style::default().fg(Color::Yellow));
     f.render_widget(client_list, chunks[1]);
+
+    // Log output at the bottom
+    let logs = log_buffer.get_logs();
+    let log_lines: Vec<ListItem> = logs
+        .iter()
+        .map(|line| ListItem::new(line.clone()))
+        .collect();
+
+    let log_list = List::new(log_lines)
+        .block(Block::default().borders(Borders::ALL).title(" Logs "))
+        .style(Style::default().fg(Color::Cyan));
+    f.render_widget(log_list, chunks[2]);
 }
 
 pub async fn handle_ui_input(ui: &mut UIContext) -> Option<bool> {

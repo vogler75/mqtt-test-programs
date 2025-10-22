@@ -6,7 +6,7 @@ mod ui;
 
 use crate::config::Config;
 use crate::metrics::GlobalMetrics;
-use crate::ui::{draw_config_screen, draw_metrics_screen, UIContext};
+use crate::ui::{draw_config_screen, draw_metrics_screen, LogBuffer, UIContext};
 use clap::Parser;
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
 use ratatui::backend::CrosstermBackend;
@@ -159,6 +159,7 @@ async fn run_ui(initial_config: &Config) -> Result<(), Box<dyn std::error::Error
 async fn run_subscribers_with_ui(config: &Config) -> Result<(), Box<dyn std::error::Error>> {
     let config = Arc::new(config.clone());
     let metrics = Arc::new(Mutex::new(GlobalMetrics::new(config.num_producers)));
+    let log_buffer = LogBuffer::new(100); // Keep last 100 log lines
 
     eprintln!("\n📊 Starting {} subscribers...", config.num_producers);
 
@@ -171,10 +172,11 @@ async fn run_subscribers_with_ui(config: &Config) -> Result<(), Box<dyn std::err
         let config_clone = config.clone();
         let client_metrics = metrics.lock().unwrap().clients[subscriber_id].clone();
         let shutdown_rx_clone = shutdown_rx.clone();
+        let log_buffer_clone = log_buffer.clone();
 
         let handle: JoinHandle<Result<(), Box<dyn std::error::Error + Send + Sync>>> =
             tokio::spawn(async move {
-                crate::subscriber::run(config_clone, Arc::new(client_metrics), shutdown_rx_clone)
+                crate::subscriber::run(config_clone, Arc::new(client_metrics), shutdown_rx_clone, log_buffer_clone)
                     .await
             });
 
@@ -194,7 +196,7 @@ async fn run_subscribers_with_ui(config: &Config) -> Result<(), Box<dyn std::err
     let start_time = Instant::now();
 
     loop {
-        terminal.draw(|f| draw_metrics_screen(f, &metrics.lock().unwrap(), start_time.elapsed()))?;
+        terminal.draw(|f| draw_metrics_screen(f, &metrics.lock().unwrap(), start_time.elapsed(), &log_buffer))?;
 
         if crossterm::event::poll(std::time::Duration::from_millis(100))? {
             if let crossterm::event::Event::Key(key) = crossterm::event::read()? {
@@ -252,6 +254,7 @@ async fn run_subscribers_with_ui(config: &Config) -> Result<(), Box<dyn std::err
 async fn run_subscribers(config: &Config) -> Result<(), Box<dyn std::error::Error>> {
     let config = Arc::new(config.clone());
     let metrics = Arc::new(Mutex::new(GlobalMetrics::new(config.num_producers)));
+    let log_buffer = LogBuffer::new(100); // Keep last 100 log lines
 
     let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
 
@@ -262,10 +265,11 @@ async fn run_subscribers(config: &Config) -> Result<(), Box<dyn std::error::Erro
         let config_clone = config.clone();
         let client_metrics = metrics.lock().unwrap().clients[subscriber_id].clone();
         let shutdown_rx_clone = shutdown_rx.clone();
+        let log_buffer_clone = log_buffer.clone();
 
         let handle: JoinHandle<Result<(), Box<dyn std::error::Error + Send + Sync>>> =
             tokio::spawn(async move {
-                crate::subscriber::run(config_clone, Arc::new(client_metrics), shutdown_rx_clone)
+                crate::subscriber::run(config_clone, Arc::new(client_metrics), shutdown_rx_clone, log_buffer_clone)
                     .await
             });
 

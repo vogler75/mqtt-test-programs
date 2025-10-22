@@ -6,7 +6,7 @@ mod ui;
 
 use crate::config::Config;
 use crate::metrics::GlobalMetrics;
-use crate::ui::{draw_config_screen, draw_metrics_screen, UIContext};
+use crate::ui::{draw_config_screen, draw_metrics_screen, LogBuffer, UIContext};
 use clap::Parser;
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
 use ratatui::backend::CrosstermBackend;
@@ -181,6 +181,7 @@ async fn run_ui(initial_config: &Config) -> Result<(), Box<dyn std::error::Error
 async fn run_producers_with_ui(config: &Config) -> Result<(), Box<dyn std::error::Error>> {
     let config = Arc::new(config.clone());
     let metrics = Arc::new(Mutex::new(GlobalMetrics::new(config.num_producers)));
+    let log_buffer = LogBuffer::new(100); // Keep last 100 log lines
 
     eprintln!("\n📊 Starting {} producers...", config.num_producers);
 
@@ -195,10 +196,11 @@ async fn run_producers_with_ui(config: &Config) -> Result<(), Box<dyn std::error
         let client_metrics = metrics.lock().unwrap().clients[producer_id].clone();
         let shutdown_rx_clone = shutdown_rx.clone();
         let pause_rx_clone = pause_rx.clone();
+        let log_buffer_clone = log_buffer.clone();
 
         let handle: JoinHandle<Result<(), Box<dyn std::error::Error + Send + Sync>>> =
             tokio::spawn(async move {
-            crate::producer::run_producer(producer_id, config_clone, Arc::new(client_metrics), shutdown_rx_clone, pause_rx_clone)
+            crate::producer::run_producer(producer_id, config_clone, Arc::new(client_metrics), shutdown_rx_clone, pause_rx_clone, log_buffer_clone)
                 .await
         });
 
@@ -226,7 +228,7 @@ async fn run_producers_with_ui(config: &Config) -> Result<(), Box<dyn std::error
         terminal.draw(|f| {
             let _ui_ctx = crate::ui::UIContext::new();
             // Draw normal metrics screen
-            draw_metrics_screen(f, &metrics_guard, start_time.elapsed());
+            draw_metrics_screen(f, &metrics_guard, start_time.elapsed(), &log_buffer);
 
             // Draw pause status if paused
             if is_paused {
@@ -313,6 +315,7 @@ async fn run_producers_with_ui(config: &Config) -> Result<(), Box<dyn std::error
 async fn run_producers(config: &Config) -> Result<(), Box<dyn std::error::Error>> {
     let config = Arc::new(config.clone());
     let metrics = Arc::new(Mutex::new(GlobalMetrics::new(config.num_producers)));
+    let log_buffer = LogBuffer::new(100); // Keep last 100 log lines
 
     println!("Starting {} producers...", config.num_producers);
 
@@ -327,10 +330,11 @@ async fn run_producers(config: &Config) -> Result<(), Box<dyn std::error::Error>
         let client_metrics = metrics.lock().unwrap().clients[producer_id].clone();
         let shutdown_rx_clone = shutdown_rx.clone();
         let pause_rx_clone = pause_rx.clone();
+        let log_buffer_clone = log_buffer.clone();
 
         let handle: JoinHandle<Result<(), Box<dyn std::error::Error + Send + Sync>>> =
             tokio::spawn(async move {
-            crate::producer::run_producer(producer_id, config_clone, Arc::new(client_metrics), shutdown_rx_clone, pause_rx_clone)
+            crate::producer::run_producer(producer_id, config_clone, Arc::new(client_metrics), shutdown_rx_clone, pause_rx_clone, log_buffer_clone)
                 .await
         });
 
