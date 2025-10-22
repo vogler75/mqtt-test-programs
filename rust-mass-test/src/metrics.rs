@@ -126,6 +126,22 @@ impl ClientMetrics {
 
         vps
     }
+
+    pub fn reset(&self) {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        self.total_published.store(0, Ordering::Relaxed);
+        self.total_received.store(0, Ordering::Relaxed);
+        self.last_pub_vps_time.store(now, Ordering::Relaxed);
+        self.last_pub_vps_count.store(0, Ordering::Relaxed);
+        self.cached_pub_vps.store(0, Ordering::Relaxed);
+        self.last_recv_vps_time.store(now, Ordering::Relaxed);
+        self.last_recv_vps_count.store(0, Ordering::Relaxed);
+        self.cached_recv_vps.store(0, Ordering::Relaxed);
+    }
 }
 
 pub struct GlobalMetrics {
@@ -155,5 +171,11 @@ impl GlobalMetrics {
 
     pub fn get_total_received_vps(&self) -> f64 {
         self.clients.iter().map(|p| p.calculate_received_vps()).sum()
+    }
+
+    pub fn reset(&self) {
+        for client in &self.clients {
+            client.reset();
+        }
     }
 }

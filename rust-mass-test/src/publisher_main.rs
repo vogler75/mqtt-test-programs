@@ -264,6 +264,11 @@ async fn run_producers_with_ui(config: &Config) -> Result<(), Box<dyn std::error
                         is_paused = !is_paused;
                         let _ = pause_tx.send(is_paused);
                     }
+                    crossterm::event::KeyCode::Char('c') | crossterm::event::KeyCode::Char('C') => {
+                        eprintln!("\n🔄 Clearing metrics...");
+                        metrics.lock().unwrap().reset();
+                        eprintln!("✅ Metrics cleared");
+                    }
                     _ => {}
                 }
             }

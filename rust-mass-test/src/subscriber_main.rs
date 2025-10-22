@@ -204,6 +204,11 @@ async fn run_subscribers_with_ui(config: &Config) -> Result<(), Box<dyn std::err
                         let _ = shutdown_tx.send(true); // Send shutdown signal
                         break;
                     }
+                    crossterm::event::KeyCode::Char('c') | crossterm::event::KeyCode::Char('C') => {
+                        eprintln!("\n🔄 Clearing metrics...");
+                        metrics.lock().unwrap().reset();
+                        eprintln!("✅ Metrics cleared");
+                    }
                     _ => {}
                 }
             }

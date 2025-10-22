@@ -19,14 +19,33 @@ pub async fn run(config: Arc<Config>, metrics: Arc<ClientMetrics>, mut shutdown_
     let (client, mut eventloop) = AsyncClient::new(mqttoptions, 10);
     eprintln!("Subscriber {}: [DEBUG] Client created, waiting for events", metrics.id + 1);
 
-    // Generate all topics first
+    // Generate topic generator
     let topic_generator = TopicGenerator::new(
         config.topic_prefix.clone(),
         metrics.id + 1, // Use client's ID as base_topic_index
         config.topics_per_node,
         config.max_depth,
     );
-    let all_topics = topic_generator.generate_all();
+
+    // Get topics to subscribe to
+    let (all_topics, is_wildcard) = if config.use_leafs {
+        if config.use_wildcard {
+            // Use wildcard at parent-of-leaf level (e.g., test00001/01/#)
+            (topic_generator.generate_wildcard_subscriptions(), true)
+        } else {
+            // Use individual leaf topics only (e.g., test00001/01/01)
+            (topic_generator.generate_leaves_only(), false)
+        }
+    } else {
+        if config.use_wildcard {
+            // Use single base-level wildcard (e.g., test00001/#)
+            (topic_generator.generate_single_wildcard(), true)
+        } else {
+            // Use all topics in the tree
+            (topic_generator.generate_all(), false)
+        }
+    };
+
     let total_topics_count = all_topics.len();
 
     // Select a percentage of topics to subscribe to
@@ -34,10 +53,24 @@ pub async fn run(config: Arc<Config>, metrics: Arc<ClientMetrics>, mut shutdown_
     let mut topics_to_subscribe: Vec<String> = all_topics
         .into_iter()
         .collect();
-    fastrand::shuffle(&mut topics_to_subscribe);
+    if !is_wildcard {
+        fastrand::shuffle(&mut topics_to_subscribe);
+    }
     topics_to_subscribe.truncate(num_topics_to_subscribe);
 
     let sub_count = topics_to_subscribe.len();
+
+    // Debug output to show what we're actually subscribing to
+    if config.use_leafs && config.use_wildcard {
+        eprintln!("Subscriber {}: Using WILDCARD at parent-of-leaf level: {:?}", metrics.id + 1, topics_to_subscribe);
+    } else if config.use_leafs {
+        eprintln!("Subscriber {}: Using individual LEAF topics ({} total)", metrics.id + 1, sub_count);
+    } else if config.use_wildcard {
+        eprintln!("Subscriber {}: Using WILDCARD subscription at base level: {:?}", metrics.id + 1, topics_to_subscribe);
+    } else {
+        eprintln!("Subscriber {}: Using ALL topics ({} total)", metrics.id + 1, sub_count);
+    }
+
     eprintln!("Subscriber {}: Subscribing to {} topics...", metrics.id + 1, sub_count);
 
     let mut topic_index = 0;

@@ -42,7 +42,7 @@ pub async fn run_producer(
         config.max_depth,
     );
 
-    let topics: Vec<String> = if config.publish_leaves_only {
+    let topics: Vec<String> = if config.use_leafs {
         topic_gen.generate_leaves_only()
     } else {
         topic_gen.generate_all()

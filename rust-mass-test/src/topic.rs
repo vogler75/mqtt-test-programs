@@ -55,6 +55,30 @@ impl TopicGenerator {
         topics
     }
 
+    #[allow(dead_code)]
+    pub fn generate_wildcard_subscriptions(&self) -> Vec<String> {
+        let mut topics = Vec::new();
+        let base_topic = format!("{}{:05}", self.prefix, self.base_topic_index);
+
+        // Generate topics at max_depth - 1 level with wildcard
+        if self.max_depth > 1 {
+            self.generate_at_depth(&mut topics, &base_topic, self.max_depth - 1, Vec::new());
+            // Add wildcard suffix to each topic
+            topics = topics.into_iter().map(|t| format!("{}/#", t)).collect();
+        } else if self.max_depth == 1 {
+            // If max_depth is 1, just subscribe to base_topic/#
+            topics.push(format!("{}/#", base_topic));
+        }
+
+        topics
+    }
+
+    #[allow(dead_code)]
+    pub fn generate_single_wildcard(&self) -> Vec<String> {
+        let base_topic = format!("{}{:05}", self.prefix, self.base_topic_index);
+        vec![format!("{}/#", base_topic)]
+    }
+
     fn generate_at_depth(
         &self,
         topics: &mut Vec<String>,
@@ -113,5 +137,26 @@ mod tests {
         assert!(topics.contains(&"test00001/02/01".to_string()));
         assert!(topics.contains(&"test00001/02/02".to_string()));
         assert_eq!(topics.len(), 4); // Should have exactly 4 leaf topics (2^2)
+    }
+
+    #[test]
+    fn test_wildcard_subscriptions() {
+        let gen = TopicGenerator::new("test".to_string(), 1, 2, 2);
+        let topics = gen.generate_wildcard_subscriptions();
+
+        // Should contain parent topics with wildcard
+        assert!(topics.contains(&"test00001/01/#".to_string()));
+        assert!(topics.contains(&"test00001/02/#".to_string()));
+        assert_eq!(topics.len(), 2); // Should have 2 parent topics (topics_per_node=2)
+    }
+
+    #[test]
+    fn test_single_wildcard() {
+        let gen = TopicGenerator::new("test".to_string(), 1, 2, 2);
+        let topics = gen.generate_single_wildcard();
+
+        // Should contain only one wildcard at base level
+        assert_eq!(topics.len(), 1);
+        assert_eq!(topics[0], "test00001/#");
     }
 }
