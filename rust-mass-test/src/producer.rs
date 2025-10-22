@@ -31,8 +31,32 @@ pub async fn run_producer(
     // Create client and connection
     let (client, mut eventloop) = AsyncClient::new(mqttoptions, 10);
 
-    // Give the connection a moment to establish
-    time::sleep(Duration::from_millis(500)).await;
+    eprintln!("Producer {}: Waiting for connection to broker...", producer_id + 1);
+
+    // Wait for CONNACK before proceeding
+    loop {
+        tokio::select! {
+            _ = shutdown_rx.changed() => {
+                eprintln!("Producer {}: Received shutdown signal before connecting. Disconnecting...", producer_id + 1);
+                client.disconnect().await?;
+                return Ok(());
+            }
+            event = eventloop.poll() => {
+                match event {
+                    Ok(Event::Incoming(rumqttc::Packet::ConnAck(_ack))) => {
+                        eprintln!("Producer {}: ✅ Connected to broker", producer_id + 1);
+                        break;
+                    }
+                    Ok(Event::Incoming(_)) => {},
+                    Ok(Event::Outgoing(_)) => {},
+                    Err(e) => {
+                        eprintln!("Producer {}: ❌ Connection error: {:?}", producer_id + 1, e);
+                        return Err(e.into());
+                    }
+                }
+            }
+        }
+    }
 
     // Generate topics for this producer
     let topic_gen = TopicGenerator::new(
@@ -70,7 +94,7 @@ pub async fn run_producer(
     loop {
         tokio::select! {
             _ = shutdown_rx.changed() => {
-                eprintln!("Producer received shutdown signal. Disconnecting...");
+                eprintln!("Producer {}: Received shutdown signal. Disconnecting...", producer_id + 1);
                 client.disconnect().await?;
                 break;
             }
@@ -79,8 +103,9 @@ pub async fn run_producer(
             }
             event = eventloop.poll() => {
                 match event {
-                    Ok(Event::Incoming(rumqttc::Packet::ConnAck(_ack))) => {
-                        eprintln!("Producer {}: Connected to broker.", producer_id + 1);
+                    Ok(Event::Incoming(rumqttc::Packet::Disconnect)) => {
+                        eprintln!("Producer {}: ❌ Broker sent DISCONNECT!", producer_id + 1);
+                        break;
                     }
                     Ok(Event::Incoming(_)) => {},
                     Ok(Event::Outgoing(_)) => {},
