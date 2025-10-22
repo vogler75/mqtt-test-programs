@@ -12,6 +12,9 @@ import java.time.LocalDateTime;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.HashMap;
+import java.util.Map;
 
 public class MqttPublisher {
 
@@ -124,14 +127,22 @@ public class MqttPublisher {
                     Duration diff = Duration.between(lastTime, currentTime);
                     if (diff.getSeconds() >= 1) {
                         double throughput = lastCounter / (double) diff.getSeconds();
-                        String statisticsMessage = "Messages " + messageCounter + " / " + lastCounter + " / " + Math.round(throughput) + " / " + diff.getSeconds();
-                        //System.out.println(statisticsMessage);
-                        lastCounter = 0;
-                        lastTime = currentTime;
-
-                        // Publish statistics to the second broker
-                        MqttMessage statsMsg = new MqttMessage(statisticsMessage.getBytes());
-                        statClient.publish(Config.statisticsTopic+"/publisher/instance_"+nr, statsMsg);
+                        Map<String, Object> stats = new HashMap<>();
+                        stats.put("totalMessages", messageCounter);
+                        stats.put("intervalMessages", lastCounter);
+                        stats.put("throughput", Math.round(throughput));
+                        stats.put("intervalSeconds", diff.getSeconds());
+                        ObjectMapper mapper = new ObjectMapper();
+                        try {
+                            String statisticsMessage = mapper.writeValueAsString(stats);
+                            lastCounter = 0;
+                            lastTime = currentTime;
+                            // Publish statistics to the second broker
+                            MqttMessage statsMsg = new MqttMessage(statisticsMessage.getBytes());
+                            statClient.publish(Config.statisticsTopic+"/publisher/instance_"+nr, statsMsg);
+                        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+                            System.err.println("Failed to serialize statistics JSON: " + e.getMessage());
+                        }
                     }
                 }
                 if (Config.DELAY_PROCESSING_EVERY_100_MESSAGES >0 && messageCounter % 100 == 0) {

@@ -1,23 +1,24 @@
 package org.example;
 
 public class Config {
-    public static String statBroker = "tcp://linux0:1883";
+    public static String oneHost = "tcp://localhost:1883";
+    public static String statBroker = oneHost;
 
-    public static String[] publisherBroker = new String[] { "tcp://linux0:1883" };
-    public static String[] subscriberBroker = new String[] { "tcp://linux0:1883" };
+    public static String[] publisherBroker = new String[] { oneHost };
+    public static String[] subscriberBroker = new String[] { oneHost };
 
     //public static String[] publisherBroker = new String[] { "tcp://linux1:1883", "tcp://linux2:1883", "tcp://linux3:1883" };
     //public static String[] subscriberBroker = new String[] { "tcp://linux1:1883", "tcp://linux2:1883", "tcp://linux3:1883" };
     //public static String[] subscriberBroker = new String[] { "tcp://linux4:1883" };
 
-    public static String topicPrefix = "Test";
+    public static String topicPrefix = "Test/Topics";
     public static String statisticsTopic = "Test/Monitor"; // Topic for publishing statistics
 
-    public static int PUBLISHER_COUNT = 10;
-    public static int SUBSCRIBER_COUNT = 10;
+    public static int PUBLISHER_COUNT = 20;
+    public static int SUBSCRIBER_COUNT = 20;
 
-    public static int SUBSCRIBER_QOS = 1;
-    public static int PUBLISHER_QOS = 1;
+    public static int SUBSCRIBER_QOS = 0;
+    public static int PUBLISHER_QOS = 0;
 
     public static boolean SUBSCRIBER_CHECK_MESSAGE_ORDER = true;
     public static boolean SUBSCRIBER_WILDCARD_SUBSCRIPTION = true;
@@ -30,6 +31,6 @@ public class Config {
     public static double DELAY_PROCESSING_EVERY_MESSAGE = 0;
 
     public static int TOPIC_LEVEL_DEPTH = 10; //100;
-    public static boolean RETAINED_MESSAGES = true;
+    public static boolean RETAINED_MESSAGES = false;
 
 }

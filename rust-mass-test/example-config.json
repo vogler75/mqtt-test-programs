@@ -1,0 +1,12 @@
+{
+  "broker_host": "localhost",
+  "broker_port": 1883,
+  "num_producers": 10,
+  "num_topics": 100,
+  "topics_per_node": 10,
+  "max_depth": 3,
+  "sleep_ms": 100,
+  "qos": 0,
+  "retained": false,
+  "topic_prefix": "test"
+}

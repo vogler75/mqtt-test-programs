@@ -10,14 +10,13 @@ export BROKER_A_USERNAME=""
 export BROKER_A_PASSWORD=""
 
 # Broker B (Destination) Configuration  
-export BROKER_B_HOST="localhost"
+export BROKER_B_HOST="linux2"
 export BROKER_B_PORT="1883"
-export BROKER_B_USERNAME="Admin"
-export BROKER_B_PASSWORD="Admin"
+export BROKER_B_USERNAME=""
+export BROKER_B_PASSWORD=""
 
 # Topics Configuration (comma-separated list)
-#export TOPICS_TO_SUBSCRIBE="Awattar/#,Original/#,Raspberry/#,tasmota/#"
-export TOPICS_TO_SUBSCRIBE="Original/#,Raspberry/#"
+export TOPICS_TO_SUBSCRIBE="Raspberry/#"
 
 # Activate virtual environment
 source .venv/bin/activate

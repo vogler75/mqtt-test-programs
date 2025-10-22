@@ -1,0 +1,18 @@
+[package]
+name = "mqtt-test"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rumqttc = "0.24"
+tokio = { version = "1", features = ["full"] }
+ratatui = "0.28"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "4", features = ["derive"] }
+crossterm = "0.28"
+fastrand = "2"
+bytes = "1"
+futures = "0.3"
+uuid = { version = "1.6", features = ["v4"] }
