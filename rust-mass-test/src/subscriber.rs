@@ -13,7 +13,7 @@ pub async fn run(config: Arc<Config>, metrics: Arc<ClientMetrics>, mut shutdown_
     let client_id = format!("sub-{}", Uuid::new_v4().to_string());
     eprintln!("Subscriber {}: [DEBUG] Connecting to {}:{} with client ID {}", metrics.id + 1, &config.broker_host, config.broker_port, client_id);
     let mut mqttoptions = MqttOptions::new(client_id.clone(), &config.broker_host, config.broker_port);
-    mqttoptions.set_keep_alive(Duration::from_secs(5));
+    mqttoptions.set_keep_alive(Duration::from_secs(60));
     eprintln!("Subscriber {}: [DEBUG] MqttOptions configured", metrics.id + 1);
 
     let (client, mut eventloop) = AsyncClient::new(mqttoptions, 10);
