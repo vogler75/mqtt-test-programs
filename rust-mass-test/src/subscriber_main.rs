@@ -6,14 +6,15 @@ mod ui;
 
 use crate::config::Config;
 use crate::metrics::GlobalMetrics;
-use crate::ui::{draw_config_screen, draw_metrics_screen, LogBuffer, UIContext};
+use crate::ui::{draw_config_screen, LogBuffer, UIContext};
 use clap::Parser;
+use crossterm::event::{self, Event, KeyCode};
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
 use std::io;
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use std::time::Duration;
 use tokio::task::JoinHandle;
 
 #[derive(Parser, Debug)]
@@ -161,7 +162,7 @@ async fn run_subscribers_with_ui(config: &Config) -> Result<(), Box<dyn std::err
     let metrics = Arc::new(Mutex::new(GlobalMetrics::new(config.num_producers)));
     let log_buffer = LogBuffer::new(100); // Keep last 100 log lines
 
-    eprintln!("\n📊 Starting {} subscribers...", config.num_producers);
+    println!("\n📊 Starting {} subscribers...", config.num_producers);
 
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
 
@@ -184,57 +185,86 @@ async fn run_subscribers_with_ui(config: &Config) -> Result<(), Box<dyn std::err
     }
 
     tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
-    eprintln!("✅ All subscribers connected!");
+    println!("✅ All subscribers connected!");
+    println!("📊 Subscribers running (press C to clear, Q to quit)...");
 
+    // Enable raw mode to capture keyboard input
     enable_raw_mode()?;
-    let mut stdout = io::stdout();
-    crossterm::execute!(stdout, EnterAlternateScreen)?;
-    let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend)?;
-    terminal.clear()?;
 
-    let start_time = Instant::now();
-
+    // Run without TUI - just let subscribers run and show logs from background
+    let mut metrics_timer = tokio::time::interval(std::time::Duration::from_secs(1));
     loop {
-        terminal.draw(|f| draw_metrics_screen(f, &metrics.lock().unwrap(), start_time.elapsed(), &log_buffer))?;
+        tokio::select! {
+            _ = metrics_timer.tick() => {
+                // Print metrics every second
+                let metrics_guard = metrics.lock().unwrap();
+                let total_received = metrics_guard.get_total_received();
+                let total_received_vps = metrics_guard.get_total_received_vps();
+                let connected_clients = metrics_guard.get_connected_count();
+                let total_clients = metrics_guard.clients.len();
 
-        if crossterm::event::poll(std::time::Duration::from_millis(100))? {
-            if let crossterm::event::Event::Key(key) = crossterm::event::read()? {
-                match key.code {
-                    crossterm::event::KeyCode::Char('q') | crossterm::event::KeyCode::Char('Q') => {
-                        eprintln!("\n🛑 Stopping subscribers...");
-                        let _ = shutdown_tx.send(true); // Send shutdown signal
+                // Temporarily disable raw mode to print metrics properly
+                let _ = disable_raw_mode();
+                println!("📈 Connected: {}/{} clients | Received: {} | v/s: {:.2} | ▶️  Running", connected_clients, total_clients, total_received, total_received_vps);
+                let _ = enable_raw_mode();
+
+                // Debug: Show individual client states
+                if connected_clients != total_clients && total_clients <= 10 {
+                    let _ = disable_raw_mode();
+                    for (idx, client) in metrics_guard.clients.iter().enumerate() {
+                        let conn_status = if client.is_connected() { "✅" } else { "❌" };
+                        println!("  [DEBUG] Client {}: {} | Recv: {}", idx + 1, conn_status, client.get_total_received());
+                    }
+                    let _ = enable_raw_mode();
+                }
+            }
+            _ = tokio::time::sleep(std::time::Duration::from_millis(100)) => {
+                // Check for keyboard input
+                if event::poll(Duration::from_millis(0)).ok().unwrap_or(false) {
+                    if let Ok(Event::Key(key)) = event::read() {
+                        match key.code {
+                            KeyCode::Char('c') | KeyCode::Char('C') => {
+                                let _ = disable_raw_mode();
+                                println!("🧹 Metrics cleared");
+                                let _ = enable_raw_mode();
+                                // Reset all metrics
+                                metrics.lock().unwrap().reset();
+                            }
+                            KeyCode::Char('q') | KeyCode::Char('Q') => {
+                                let _ = disable_raw_mode();
+                                println!("⏹️  Stopping subscribers...");
+                                let _ = enable_raw_mode();
+                                let _ = shutdown_tx.send(true);
+                                break;
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+
+                // Check if any subscriber crashed
+                let mut any_crashed = false;
+                for handle in &handles {
+                    if handle.is_finished() {
+                        any_crashed = true;
                         break;
                     }
-                    crossterm::event::KeyCode::Char('c') | crossterm::event::KeyCode::Char('C') => {
-                        eprintln!("\n🔄 Clearing metrics...");
-                        metrics.lock().unwrap().reset();
-                        eprintln!("✅ Metrics cleared");
-                    }
-                    _ => {}
+                }
+                if any_crashed {
+                    let _ = disable_raw_mode();
+                    println!("⚠️  A subscriber crashed, stopping test...");
+                    let _ = enable_raw_mode();
+                    let _ = shutdown_tx.send(true); // Send shutdown signal
+                    break;
                 }
             }
         }
-
-        let mut any_crashed = false;
-        for handle in &handles {
-            if handle.is_finished() {
-                any_crashed = true;
-                break;
-            }
-        }
-        if any_crashed {
-            eprintln!("\n⚠️  A subscriber crashed, stopping test...");
-            let _ = shutdown_tx.send(true); // Send shutdown signal
-            break;
-        }
     }
 
+    // Disable raw mode before final output
     disable_raw_mode()?;
-    crossterm::execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
-    terminal.show_cursor()?;
 
-    eprintln!("📊 Stopping all subscribers...");
+    println!("📊 Stopping all subscribers...");
 
     // Abort all tasks (as a fallback, if graceful shutdown fails)
     for handle in handles {
@@ -243,10 +273,10 @@ async fn run_subscribers_with_ui(config: &Config) -> Result<(), Box<dyn std::err
 
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
-    eprintln!("✅ Test completed!");
+    println!("✅ Test completed!");
     let final_metrics = metrics.lock().unwrap();
-    eprintln!("Total messages received: {}", final_metrics.get_total_received());
-    eprintln!("Average throughput: {:.2} msg/s", final_metrics.get_total_received_vps());
+    println!("Total messages received: {}", final_metrics.get_total_received());
+    println!("Average throughput: {:.2} msg/s", final_metrics.get_total_received_vps());
 
     Ok(())
 }

@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -7,12 +7,19 @@ pub struct ClientMetrics {
     pub id: usize,
     total_published: Arc<AtomicU64>,
     total_received: Arc<AtomicU64>,
+    #[allow(dead_code)]
     last_pub_vps_time: Arc<AtomicU64>,
+    #[allow(dead_code)]
     last_pub_vps_count: Arc<AtomicU64>,
+    #[allow(dead_code)]
     cached_pub_vps: Arc<AtomicU64>,
+    #[allow(dead_code)]
     last_recv_vps_time: Arc<AtomicU64>,
+    #[allow(dead_code)]
     last_recv_vps_count: Arc<AtomicU64>,
+    #[allow(dead_code)]
     cached_recv_vps: Arc<AtomicU64>,
+    connected: Arc<AtomicBool>,
 }
 
 impl ClientMetrics {
@@ -32,6 +39,7 @@ impl ClientMetrics {
             last_recv_vps_time: Arc::new(AtomicU64::new(now)),
             last_recv_vps_count: Arc::new(AtomicU64::new(0)),
             cached_recv_vps: Arc::new(AtomicU64::new(0)),
+            connected: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -49,6 +57,7 @@ impl ClientMetrics {
         self.total_published.load(Ordering::Relaxed)
     }
 
+    #[allow(dead_code)]
     pub fn get_total_received(&self) -> u64 {
         self.total_received.load(Ordering::Relaxed)
     }
@@ -93,6 +102,7 @@ impl ClientMetrics {
         vps
     }
 
+    #[allow(dead_code)]
     pub fn calculate_received_vps(&self) -> f64 {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -127,6 +137,7 @@ impl ClientMetrics {
         vps
     }
 
+    #[allow(dead_code)]
     pub fn reset(&self) {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -141,6 +152,14 @@ impl ClientMetrics {
         self.last_recv_vps_time.store(now, Ordering::Relaxed);
         self.last_recv_vps_count.store(0, Ordering::Relaxed);
         self.cached_recv_vps.store(0, Ordering::Relaxed);
+    }
+
+    pub fn set_connected(&self, connected: bool) {
+        self.connected.store(connected, Ordering::Relaxed);
+    }
+
+    pub fn is_connected(&self) -> bool {
+        self.connected.load(Ordering::Relaxed)
     }
 }
 
@@ -161,6 +180,7 @@ impl GlobalMetrics {
         self.clients.iter().map(|p| p.get_total_published()).sum()
     }
 
+    #[allow(dead_code)]
     pub fn get_total_received(&self) -> u64 {
         self.clients.iter().map(|p| p.get_total_received()).sum()
     }
@@ -169,13 +189,19 @@ impl GlobalMetrics {
         self.clients.iter().map(|p| p.calculate_vps()).sum()
     }
 
+    #[allow(dead_code)]
     pub fn get_total_received_vps(&self) -> f64 {
         self.clients.iter().map(|p| p.calculate_received_vps()).sum()
     }
 
+    #[allow(dead_code)]
     pub fn reset(&self) {
         for client in &self.clients {
             client.reset();
         }
+    }
+
+    pub fn get_connected_count(&self) -> usize {
+        self.clients.iter().filter(|c| c.is_connected()).count()
     }
 }

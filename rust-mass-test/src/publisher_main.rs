@@ -6,14 +6,15 @@ mod ui;
 
 use crate::config::Config;
 use crate::metrics::GlobalMetrics;
-use crate::ui::{draw_config_screen, draw_metrics_screen, LogBuffer, UIContext};
+use crate::ui::{draw_config_screen, LogBuffer, UIContext};
 use clap::Parser;
+use crossterm::event::{self, Event, KeyCode};
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
 use std::io;
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use std::time::Duration;
 use tokio::task::JoinHandle;
 
 #[derive(Parser, Debug)]
@@ -183,10 +184,11 @@ async fn run_producers_with_ui(config: &Config) -> Result<(), Box<dyn std::error
     let metrics = Arc::new(Mutex::new(GlobalMetrics::new(config.num_producers)));
     let log_buffer = LogBuffer::new(100); // Keep last 100 log lines
 
-    eprintln!("\n📊 Starting {} producers...", config.num_producers);
+    println!("\n📊 Starting {} producers...", config.num_producers);
 
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
     let (pause_tx, pause_rx) = tokio::sync::watch::channel(false);
+    let mut is_paused = false;
 
     let mut handles: Vec<JoinHandle<Result<(), Box<dyn std::error::Error + Send + Sync>>>> =
         Vec::new();
@@ -209,94 +211,95 @@ async fn run_producers_with_ui(config: &Config) -> Result<(), Box<dyn std::error
 
     // Small delay to let producers connect
     tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
-    eprintln!("✅ All producers connected!");
+    println!("✅ All producers connected!");
+    println!("📊 Producers running (press P to pause/resume, C to clear, Q to quit)...");
 
-    // Setup UI terminal for metrics display
+    // Enable raw mode to capture keyboard input
     enable_raw_mode()?;
-    let mut stdout = io::stdout();
-    crossterm::execute!(stdout, EnterAlternateScreen)?;
-    let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend)?;
-    terminal.clear()?;
 
-    let start_time = Instant::now();
-    let mut is_paused = false;
-
+    // Run without TUI - just let producers run and show logs from background
+    let mut metrics_timer = tokio::time::interval(std::time::Duration::from_secs(1));
     loop {
-        // Draw metrics
-        let metrics_guard = metrics.lock().unwrap();
-        terminal.draw(|f| {
-            let _ui_ctx = crate::ui::UIContext::new();
-            // Draw normal metrics screen
-            draw_metrics_screen(f, &metrics_guard, start_time.elapsed(), &log_buffer);
+        tokio::select! {
+            _ = metrics_timer.tick() => {
+                // Print metrics every second
+                let metrics_guard = metrics.lock().unwrap();
+                let total_published = metrics_guard.get_total_published();
+                let total_vps = metrics_guard.get_total_vps();
+                let connected_clients = metrics_guard.get_connected_count();
+                let total_clients = metrics_guard.clients.len();
+                let status = if is_paused { "⏸️  PAUSED" } else { "▶️  Running" };
 
-            // Draw pause status if paused
-            if is_paused {
-                use ratatui::widgets::{Paragraph, Block, Borders};
-                use ratatui::style::{Style, Color, Modifier};
-                use ratatui::layout::{Alignment, Rect};
+                // Temporarily disable raw mode to print metrics properly
+                let _ = disable_raw_mode();
+                println!("📈 Connected: {}/{} clients | Published: {} | v/s: {:.2} | {}", connected_clients, total_clients, total_published, total_vps, status);
+                let _ = enable_raw_mode();
 
-                let area = f.area();
-                let pause_area = Rect {
-                    x: area.x + area.width / 2 - 15,
-                    y: area.y + 3,
-                    width: 30,
-                    height: 3,
-                };
-
-                let pause_widget = Paragraph::new("⏸ PAUSED - Press P to resume")
-                    .block(Block::default().borders(Borders::ALL).title("Status"))
-                    .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
-                    .alignment(Alignment::Center);
-                f.render_widget(pause_widget, pause_area);
+                // Debug: Show individual client states
+                if connected_clients != total_clients && total_clients <= 10 {
+                    let _ = disable_raw_mode();
+                    for (idx, client) in metrics_guard.clients.iter().enumerate() {
+                        let conn_status = if client.is_connected() { "✅" } else { "❌" };
+                        println!("  [DEBUG] Client {}: {} | Pub: {}", idx + 1, conn_status, client.get_total_published());
+                    }
+                    let _ = enable_raw_mode();
+                }
             }
-        })?;
-        drop(metrics_guard);
+            _ = tokio::time::sleep(std::time::Duration::from_millis(100)) => {
+                // Check for keyboard input
+                if event::poll(Duration::from_millis(0)).ok().unwrap_or(false) {
+                    if let Ok(Event::Key(key)) = event::read() {
+                        match key.code {
+                            KeyCode::Char('p') | KeyCode::Char('P') => {
+                                is_paused = !is_paused;
+                                let _ = pause_tx.send(is_paused);
+                                let status = if is_paused { "⏸️  Publishing PAUSED" } else { "▶️  Publishing RESUMED" };
+                                let _ = disable_raw_mode();
+                                println!("{}", status);
+                                let _ = enable_raw_mode();
+                            }
+                            KeyCode::Char('c') | KeyCode::Char('C') => {
+                                let _ = disable_raw_mode();
+                                println!("🧹 Metrics cleared");
+                                let _ = enable_raw_mode();
+                                // Reset all metrics
+                                metrics.lock().unwrap().reset();
+                            }
+                            KeyCode::Char('q') | KeyCode::Char('Q') => {
+                                let _ = disable_raw_mode();
+                                println!("⏹️  Stopping producers...");
+                                let _ = enable_raw_mode();
+                                let _ = shutdown_tx.send(true);
+                                break;
+                            }
+                            _ => {}
+                        }
+                    }
+                }
 
-        // Check for key input
-        if crossterm::event::poll(std::time::Duration::from_millis(100))? {
-            if let crossterm::event::Event::Key(key) = crossterm::event::read()? {
-                match key.code {
-                    crossterm::event::KeyCode::Char('q') | crossterm::event::KeyCode::Char('Q') => {
-                        eprintln!("\n🛑 Stopping producers...");
-                        let _ = shutdown_tx.send(true); // Send shutdown signal
+                // Check if any producer crashed
+                let mut any_crashed = false;
+                for handle in &handles {
+                    if handle.is_finished() {
+                        any_crashed = true;
                         break;
                     }
-                    crossterm::event::KeyCode::Char('p') | crossterm::event::KeyCode::Char('P') => {
-                        is_paused = !is_paused;
-                        let _ = pause_tx.send(is_paused);
-                    }
-                    crossterm::event::KeyCode::Char('c') | crossterm::event::KeyCode::Char('C') => {
-                        eprintln!("\n🔄 Clearing metrics...");
-                        metrics.lock().unwrap().reset();
-                        eprintln!("✅ Metrics cleared");
-                    }
-                    _ => {}
+                }
+                if any_crashed {
+                    let _ = disable_raw_mode();
+                    println!("⚠️  A producer crashed, stopping test...");
+                    let _ = enable_raw_mode();
+                    let _ = shutdown_tx.send(true); // Send shutdown signal
+                    break;
                 }
             }
         }
-
-        // Check if any producer crashed
-        let mut any_crashed = false;
-        for handle in &handles {
-            if handle.is_finished() {
-                any_crashed = true;
-                break;
-            }
-        }
-        if any_crashed {
-            eprintln!("\n⚠️  A producer crashed, stopping test...");
-            let _ = shutdown_tx.send(true); // Send shutdown signal
-            break;
-        }
     }
 
-    // Cleanup
+    // Disable raw mode before final output
     disable_raw_mode()?;
-    crossterm::execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
-    terminal.show_cursor()?;
 
-    eprintln!("📊 Stopping all producers...");
+    println!("📊 Stopping all producers...");
 
     // Abort all tasks (as a fallback, if graceful shutdown fails)
     for handle in handles {
@@ -306,8 +309,8 @@ async fn run_producers_with_ui(config: &Config) -> Result<(), Box<dyn std::error
     // Wait a bit for tasks to finish
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
-    eprintln!("✅ Test completed!");
-    eprintln!("Total messages published: {}", metrics.lock().unwrap().get_total_published());
+    println!("✅ Test completed!");
+    println!("Total messages published: {}", metrics.lock().unwrap().get_total_published());
 
     Ok(())
 }
@@ -317,7 +320,7 @@ async fn run_producers(config: &Config) -> Result<(), Box<dyn std::error::Error>
     let metrics = Arc::new(Mutex::new(GlobalMetrics::new(config.num_producers)));
     let log_buffer = LogBuffer::new(100); // Keep last 100 log lines
 
-    println!("Starting {} producers...", config.num_producers);
+    eprintln!("Starting {} producers...", config.num_producers);
 
     let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
     let (_pause_tx, pause_rx) = tokio::sync::watch::channel(false);

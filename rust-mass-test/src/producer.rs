@@ -57,6 +57,9 @@ pub async fn run_producer(
                     match event {
                         Ok(Event::Incoming(rumqttc::Packet::ConnAck(_ack))) => {
                             log_buffer.log(format!("Producer {}: ✅ Connected to broker", producer_id + 1));
+                            metrics.set_connected(true);
+                            let is_connected = metrics.is_connected();
+                            log_buffer.log(format!("Producer {}: [DEBUG] Connected flag set: {}", producer_id + 1, is_connected));
                             connected = true;
                             break;
                         }
@@ -117,6 +120,7 @@ pub async fn run_producer(
                 _ = shutdown_rx.changed() => {
                     log_buffer.log(format!("Producer {}: Received shutdown signal. Disconnecting...", producer_id + 1));
                     let _ = client.disconnect().await;
+                    metrics.set_connected(false);
                     should_shutdown = true;
                     break;
                 }
@@ -127,12 +131,14 @@ pub async fn run_producer(
                     match event {
                         Ok(Event::Incoming(rumqttc::Packet::Disconnect)) => {
                             log_buffer.log(format!("Producer {}: ⚠️  Broker sent DISCONNECT, reconnecting...", producer_id + 1));
+                            metrics.set_connected(false);
                             break;
                         }
                         Ok(Event::Incoming(_)) => {},
                         Ok(Event::Outgoing(_)) => {},
                         Err(e) => {
                             log_buffer.log(format!("Producer {}: ⚠️  Connection error: {:?}, reconnecting...", producer_id + 1, e));
+                            metrics.set_connected(false);
                             // Break on connection errors to trigger reconnection
                             break;
                         }

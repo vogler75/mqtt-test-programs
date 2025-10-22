@@ -41,6 +41,7 @@ impl LogBuffer {
         }
     }
 
+    #[allow(dead_code)]
     pub fn clear(&self) {
         if let Ok(mut logs) = self.logs.lock() {
             logs.clear();
@@ -251,6 +252,7 @@ pub fn draw_config_screen(f: &mut Frame, ui: &UIContext) {
     f.render_widget(footer, chunks[2]);
 }
 
+#[allow(dead_code)]
 pub fn draw_metrics_screen(
     f: &mut Frame,
     metrics: &GlobalMetrics,
