@@ -7,9 +7,12 @@ pub struct ClientMetrics {
     pub id: usize,
     total_published: Arc<AtomicU64>,
     total_received: Arc<AtomicU64>,
-    last_vps_time: Arc<AtomicU64>,
-    last_vps_count: Arc<AtomicU64>,
-    cached_vps: Arc<AtomicU64>, // Store as u64 bits to avoid sync issues
+    last_pub_vps_time: Arc<AtomicU64>,
+    last_pub_vps_count: Arc<AtomicU64>,
+    cached_pub_vps: Arc<AtomicU64>,
+    last_recv_vps_time: Arc<AtomicU64>,
+    last_recv_vps_count: Arc<AtomicU64>,
+    cached_recv_vps: Arc<AtomicU64>,
 }
 
 impl ClientMetrics {
@@ -23,9 +26,12 @@ impl ClientMetrics {
             id,
             total_published: Arc::new(AtomicU64::new(0)),
             total_received: Arc::new(AtomicU64::new(0)),
-            last_vps_time: Arc::new(AtomicU64::new(now)),
-            last_vps_count: Arc::new(AtomicU64::new(0)),
-            cached_vps: Arc::new(AtomicU64::new(0)),
+            last_pub_vps_time: Arc::new(AtomicU64::new(now)),
+            last_pub_vps_count: Arc::new(AtomicU64::new(0)),
+            cached_pub_vps: Arc::new(AtomicU64::new(0)),
+            last_recv_vps_time: Arc::new(AtomicU64::new(now)),
+            last_recv_vps_count: Arc::new(AtomicU64::new(0)),
+            cached_recv_vps: Arc::new(AtomicU64::new(0)),
         }
     }
 
@@ -59,17 +65,17 @@ impl ClientMetrics {
             .unwrap()
             .as_secs();
 
-        let last_time = self.last_vps_time.load(Ordering::Relaxed);
+        let last_time = self.last_pub_vps_time.load(Ordering::Relaxed);
 
         // Only recalculate if at least 1 second has passed
         if now <= last_time {
             // Return cached value
-            let cached_bits = self.cached_vps.load(Ordering::Relaxed);
+            let cached_bits = self.cached_pub_vps.load(Ordering::Relaxed);
             return f64::from_bits(cached_bits);
         }
 
         let current_count = self.total_published.load(Ordering::Relaxed);
-        let last_count = self.last_vps_count.load(Ordering::Relaxed);
+        let last_count = self.last_pub_vps_count.load(Ordering::Relaxed);
 
         let time_delta = now.saturating_sub(last_time);
         if time_delta == 0 {
@@ -80,9 +86,43 @@ impl ClientMetrics {
         let vps = count_delta as f64 / time_delta as f64;
 
         // Update for next check
-        self.last_vps_time.store(now, Ordering::Relaxed);
-        self.last_vps_count.store(current_count, Ordering::Relaxed);
-        self.cached_vps.store(vps.to_bits(), Ordering::Relaxed);
+        self.last_pub_vps_time.store(now, Ordering::Relaxed);
+        self.last_pub_vps_count.store(current_count, Ordering::Relaxed);
+        self.cached_pub_vps.store(vps.to_bits(), Ordering::Relaxed);
+
+        vps
+    }
+
+    pub fn calculate_received_vps(&self) -> f64 {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        let last_time = self.last_recv_vps_time.load(Ordering::Relaxed);
+
+        // Only recalculate if at least 1 second has passed
+        if now <= last_time {
+            // Return cached value
+            let cached_bits = self.cached_recv_vps.load(Ordering::Relaxed);
+            return f64::from_bits(cached_bits);
+        }
+
+        let current_count = self.total_received.load(Ordering::Relaxed);
+        let last_count = self.last_recv_vps_count.load(Ordering::Relaxed);
+
+        let time_delta = now.saturating_sub(last_time);
+        if time_delta == 0 {
+            return 0.0;
+        }
+
+        let count_delta = current_count.saturating_sub(last_count);
+        let vps = count_delta as f64 / time_delta as f64;
+
+        // Update for next check
+        self.last_recv_vps_time.store(now, Ordering::Relaxed);
+        self.last_recv_vps_count.store(current_count, Ordering::Relaxed);
+        self.cached_recv_vps.store(vps.to_bits(), Ordering::Relaxed);
 
         vps
     }
@@ -111,5 +151,9 @@ impl GlobalMetrics {
 
     pub fn get_total_vps(&self) -> f64 {
         self.clients.iter().map(|p| p.calculate_vps()).sum()
+    }
+
+    pub fn get_total_received_vps(&self) -> f64 {
+        self.clients.iter().map(|p| p.calculate_received_vps()).sum()
     }
 }

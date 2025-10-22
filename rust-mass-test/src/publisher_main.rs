@@ -185,6 +185,7 @@ async fn run_producers_with_ui(config: &Config) -> Result<(), Box<dyn std::error
     eprintln!("\n📊 Starting {} producers...", config.num_producers);
 
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+    let (pause_tx, pause_rx) = tokio::sync::watch::channel(false);
 
     let mut handles: Vec<JoinHandle<Result<(), Box<dyn std::error::Error + Send + Sync>>>> =
         Vec::new();
@@ -193,10 +194,11 @@ async fn run_producers_with_ui(config: &Config) -> Result<(), Box<dyn std::error
         let config_clone = config.clone();
         let client_metrics = metrics.lock().unwrap().clients[producer_id].clone();
         let shutdown_rx_clone = shutdown_rx.clone();
+        let pause_rx_clone = pause_rx.clone();
 
         let handle: JoinHandle<Result<(), Box<dyn std::error::Error + Send + Sync>>> =
             tokio::spawn(async move {
-            crate::producer::run_producer(producer_id, config_clone, Arc::new(client_metrics), shutdown_rx_clone)
+            crate::producer::run_producer(producer_id, config_clone, Arc::new(client_metrics), shutdown_rx_clone, pause_rx_clone)
                 .await
         });
 
@@ -216,12 +218,40 @@ async fn run_producers_with_ui(config: &Config) -> Result<(), Box<dyn std::error
     terminal.clear()?;
 
     let start_time = Instant::now();
+    let mut is_paused = false;
 
     loop {
         // Draw metrics
-        terminal.draw(|f| draw_metrics_screen(f, &metrics.lock().unwrap(), start_time.elapsed()))?;
+        let metrics_guard = metrics.lock().unwrap();
+        terminal.draw(|f| {
+            let _ui_ctx = crate::ui::UIContext::new();
+            // Draw normal metrics screen
+            draw_metrics_screen(f, &metrics_guard, start_time.elapsed());
 
-        // Check for quit
+            // Draw pause status if paused
+            if is_paused {
+                use ratatui::widgets::{Paragraph, Block, Borders};
+                use ratatui::style::{Style, Color, Modifier};
+                use ratatui::layout::{Alignment, Rect};
+
+                let area = f.area();
+                let pause_area = Rect {
+                    x: area.x + area.width / 2 - 15,
+                    y: area.y + 3,
+                    width: 30,
+                    height: 3,
+                };
+
+                let pause_widget = Paragraph::new("⏸ PAUSED - Press P to resume")
+                    .block(Block::default().borders(Borders::ALL).title("Status"))
+                    .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+                    .alignment(Alignment::Center);
+                f.render_widget(pause_widget, pause_area);
+            }
+        })?;
+        drop(metrics_guard);
+
+        // Check for key input
         if crossterm::event::poll(std::time::Duration::from_millis(100))? {
             if let crossterm::event::Event::Key(key) = crossterm::event::read()? {
                 match key.code {
@@ -229,6 +259,10 @@ async fn run_producers_with_ui(config: &Config) -> Result<(), Box<dyn std::error
                         eprintln!("\n🛑 Stopping producers...");
                         let _ = shutdown_tx.send(true); // Send shutdown signal
                         break;
+                    }
+                    crossterm::event::KeyCode::Char('p') | crossterm::event::KeyCode::Char('P') => {
+                        is_paused = !is_paused;
+                        let _ = pause_tx.send(is_paused);
                     }
                     _ => {}
                 }
@@ -278,6 +312,7 @@ async fn run_producers(config: &Config) -> Result<(), Box<dyn std::error::Error>
     println!("Starting {} producers...", config.num_producers);
 
     let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+    let (_pause_tx, pause_rx) = tokio::sync::watch::channel(false);
 
     let mut handles: Vec<JoinHandle<Result<(), Box<dyn std::error::Error + Send + Sync>>>> =
         Vec::new();
@@ -286,10 +321,11 @@ async fn run_producers(config: &Config) -> Result<(), Box<dyn std::error::Error>
         let config_clone = config.clone();
         let client_metrics = metrics.lock().unwrap().clients[producer_id].clone();
         let shutdown_rx_clone = shutdown_rx.clone();
+        let pause_rx_clone = pause_rx.clone();
 
         let handle: JoinHandle<Result<(), Box<dyn std::error::Error + Send + Sync>>> =
             tokio::spawn(async move {
-            crate::producer::run_producer(producer_id, config_clone, Arc::new(client_metrics), shutdown_rx_clone)
+            crate::producer::run_producer(producer_id, config_clone, Arc::new(client_metrics), shutdown_rx_clone, pause_rx_clone)
                 .await
         });
 

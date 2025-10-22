@@ -237,7 +237,9 @@ async fn run_subscribers_with_ui(config: &Config) -> Result<(), Box<dyn std::err
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
     eprintln!("✅ Test completed!");
-    eprintln!("Total messages received: {}", metrics.lock().unwrap().get_total_received());
+    let final_metrics = metrics.lock().unwrap();
+    eprintln!("Total messages received: {}", final_metrics.get_total_received());
+    eprintln!("Average throughput: {:.2} msg/s", final_metrics.get_total_received_vps());
 
     Ok(())
 }
@@ -269,6 +271,11 @@ async fn run_subscribers(config: &Config) -> Result<(), Box<dyn std::error::Erro
     for handle in handles {
         let _ = handle.await;
     }
+
+    eprintln!("✅ Test completed!");
+    let final_metrics = metrics.lock().unwrap();
+    eprintln!("Total messages received: {}", final_metrics.get_total_received());
+    eprintln!("Average throughput: {:.2} msg/s", final_metrics.get_total_received_vps());
 
     Ok(())
 }

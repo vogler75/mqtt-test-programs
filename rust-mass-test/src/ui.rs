@@ -214,6 +214,7 @@ pub fn draw_metrics_screen(
 
     // Global metrics
     let total_vps = metrics.get_total_vps();
+    let total_received_vps = metrics.get_total_received_vps();
     let total_published = metrics.get_total_published();
     let total_received = metrics.get_total_received();
     let uptime_secs = uptime.as_secs();
@@ -227,11 +228,12 @@ pub fn draw_metrics_screen(
     let global_info = format!(
         "Global Metrics\n\
          ═════════════════════════════════════════════════════════════\n\
-         Total Published: {} | Total Received: {} | Global v/s: {:.2}\n\
+         Total Published: {} | Total Received: {}\n\
+         Pub v/s: {:.2}  |  Recv v/s: {:.2}\n\
          Uptime: {}  |  Active Clients: {}\n\
          ═════════════════════════════════════════════════════════════\n\
          Press Q to STOP the test",
-        total_published, total_received, total_vps, uptime_str, metrics.clients.len(),
+        total_published, total_received, total_vps, total_received_vps, uptime_str, metrics.clients.len(),
     );
 
     let global_widget = Paragraph::new(global_info)
@@ -245,11 +247,12 @@ pub fn draw_metrics_screen(
         .iter()
         .map(|c| {
             format!(
-                "Client {:3}: Pub={:8} Rec={:8} v/s={:7.2}",
+                "Client {:3}: Pub={:8} (Pub v/s={:7.2}) | Rec={:8} (Recv v/s={:7.2})",
                 c.id + 1,
                 c.get_total_published(),
+                c.calculate_vps(),
                 c.get_total_received(),
-                c.calculate_vps()
+                c.calculate_received_vps()
             )
         })
         .collect();

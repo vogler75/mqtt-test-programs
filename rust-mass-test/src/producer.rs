@@ -15,6 +15,7 @@ pub async fn run_producer(
     config: Arc<Config>,
     metrics: Arc<ClientMetrics>,
     mut shutdown_rx: watch::Receiver<bool>,
+    mut pause_rx: watch::Receiver<bool>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Create MQTT connection options
     let client_id = format!("pub-{}", Uuid::new_v4().to_string());
@@ -69,6 +70,9 @@ pub async fn run_producer(
                 client.disconnect().await?;
                 break;
             }
+            _ = pause_rx.changed() => {
+                // Pause state changed, just acknowledge it by continuing the loop
+            }
             event = eventloop.poll() => {
                 match event {
                     Ok(Event::Incoming(rumqttc::Packet::ConnAck(_ack))) => {
@@ -83,6 +87,11 @@ pub async fn run_producer(
                 }
             }
             _ = publish_timer.tick() => {
+                // Check if paused before publishing
+                if *pause_rx.borrow() {
+                    continue; // Skip publishing but keep the timer ticking
+                }
+
                 // Generate payload
                 let counter = metrics.get_counter();
                 let random_value: f64 = fastrand::f64();
