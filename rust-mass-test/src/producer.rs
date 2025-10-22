@@ -33,7 +33,7 @@ pub async fn run_producer(
             config.broker_host.clone(),
             config.broker_port,
         );
-        mqttoptions.set_keep_alive(Duration::from_secs(60));
+        mqttoptions.set_keep_alive(Duration::from_secs(120));
         mqttoptions.set_max_packet_size(100 * 1024, 100 * 1024);
         mqttoptions.set_inflight(10); // Small buffer to avoid overwhelming broker and ensure sends
 
